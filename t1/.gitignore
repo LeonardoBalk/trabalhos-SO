@@ -1,6 +1,6 @@
 *.o
 *.exe
 *.mob
+bin/
 simulador_completo/bin/
 compilador_c/bin/
-T1/bin/

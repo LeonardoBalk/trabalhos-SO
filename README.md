@@ -2,7 +2,7 @@
 
 Entrega do T1 da disciplina ELC1080 - Sistemas Operacionais.
 
-Os arquivos do trabalho estão em `T1/`:
+Os arquivos do trabalho estão em `t1/`:
 
 - `t1.asm`: gera e imprime um número aleatório de 16 bits.
 - `contador.asm`: mostra instruções executadas e segundos de execução.
@@ -11,18 +11,18 @@ Os arquivos do trabalho estão em `T1/`:
 
 ## Como compilar
 
-No Linux:
+Na raiz do repositório, no Linux:
 
 ```sh
-bash compilar.sh
-./bin/simulador t1.mob
+bash t1/compilar.sh
+./t1/bin/simulador t1/t1.mob
 ```
 
 No Windows, usando MSYS2 em `C:\msys64`:
 
 ```powershell
-& C:\msys64\usr\bin\bash.exe compilar.sh
-.\bin\simulador.exe t1.mob
+& C:\msys64\usr\bin\bash.exe t1/compilar.sh
+.\t1\bin\simulador.exe t1\t1.mob
 ```
 
 Para executar os outros programas, troque `t1.mob` por `contador.mob` ou
@@ -31,4 +31,4 @@ Para executar os outros programas, troque `t1.mob` por `contador.mob` ou
 Dentro do simulador, use `D0` para velocidade máxima e `C` para iniciar.
 
 O texto original de referência do processador Mancha ficou em
-`README-mancha.md`.
+`t1/README-mancha.md`.

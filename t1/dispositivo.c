@@ -4,7 +4,7 @@
 #define disp_le_byte disp_le_byte_original
 #define disp_escreve_byte disp_escreve_byte_original
 #define disp_tick disp_tick_original
-#include "../simulador_completo/src/dispositivos.c"
+#include "simulador_completo/src/dispositivos.c"
 #undef disp_cria
 #undef disp_destroi
 #undef disp_le_byte

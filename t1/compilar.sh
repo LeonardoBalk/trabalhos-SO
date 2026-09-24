@@ -7,7 +7,7 @@ fi
 cd "$(dirname "$0")"
 
 cc="${CC:-gcc}"
-src=../simulador_completo/src
+src=simulador_completo/src
 flags=(-Wall -Wextra -std=gnu11 -g -I"$src")
 libs=()
 curses=(-lncurses)
@@ -38,4 +38,4 @@ if [ "${1:-}" = --test ]; then
   "./bin/testes$exe"
 fi
 
-echo "Executar da raiz: ./T1/bin/simulador$exe T1/t1.mob"
+echo "Executar da raiz: ./t1/bin/simulador$exe t1/t1.mob"

@@ -51,3 +51,5 @@ são lidos do byte mais significativo para o menos significativo.
 A captura mantém os bytes estáveis durante a leitura. O tempo decorrido
 inclui eventuais pausas do operador. A fonte aleatória é o sistema operacional:
 `BCryptGenRandom` no Windows e `getrandom` no Linux.
+
+O texto de referência do processador Mancha está em `README-mancha.md`.

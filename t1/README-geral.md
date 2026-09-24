@@ -14,15 +14,15 @@ Os arquivos do trabalho estão em `T1/`:
 No Linux:
 
 ```sh
-bash T1/compilar.sh
-./T1/bin/simulador T1/t1.mob
+bash compilar.sh
+./bin/simulador t1.mob
 ```
 
 No Windows, usando MSYS2 em `C:\msys64`:
 
 ```powershell
-& C:\msys64\usr\bin\bash.exe T1/compilar.sh
-.\T1\bin\simulador.exe T1/t1.mob
+& C:\msys64\usr\bin\bash.exe compilar.sh
+.\bin\simulador.exe t1.mob
 ```
 
 Para executar os outros programas, troque `t1.mob` por `contador.mob` ou

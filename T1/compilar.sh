@@ -38,4 +38,4 @@ if [ "${1:-}" = --test ]; then
   "./bin/testes$exe"
 fi
 
-echo "Executar da raiz: ./t1/bin/simulador$exe t1/t1.mob"
+echo "Executar da raiz: ./T1/bin/simulador$exe T1/t1.mob"

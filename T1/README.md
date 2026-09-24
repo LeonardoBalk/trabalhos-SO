@@ -14,20 +14,20 @@ No Linux, instale GCC e ncurses (`build-essential` e `libncurses-dev` no
 Debian/Ubuntu). Na raiz do repositório:
 
 ```sh
-bash t1/compilar.sh
-./t1/bin/simulador t1/t1.mob
+bash T1/compilar.sh
+./T1/bin/simulador T1/t1.mob
 ```
 
 No Windows, use MSYS2 em `C:\msys64`, com GCC e ncurses para MinGW64.
 No PowerShell:
 
 ```powershell
-& C:\msys64\usr\bin\bash.exe t1/compilar.sh
-.\t1\bin\simulador.exe t1\t1.mob
+& C:\msys64\usr\bin\bash.exe T1/compilar.sh
+.\T1\bin\simulador.exe T1\t1.mob
 ```
 
 Troque `t1.mob` por `contador.mob` ou `leitura.mob` para rodar os outros.
-Use o simulador de **`t1/bin/`**, que inclui o dispositivo adicional.
+Use o simulador de **`T1/bin/`**, que inclui o dispositivo adicional.
 
 No simulador, digite `D0` e Enter para usar a velocidade máxima, depois
 `C` e Enter para iniciar. `R` reinicia e `F` sai. O terminal precisa ter

@@ -1,0 +1,7 @@
+*.o
+*.exe
+*.mob
+bin/
+simulador_completo/bin/
+compilador_c/bin/
+compilador_c/rt/biblioteca.asm

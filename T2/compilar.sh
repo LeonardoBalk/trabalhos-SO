@@ -39,4 +39,13 @@ ex=bios_mancha/exemplos/multitarefa_c
 "./bin/montador$exe" bios_mancha/src/bios.asm "$ex/ponte.asm" bin/multitarefa_c.asm \
   -o bin/multitarefa_c.mob
 
-echo "Executar da raiz: ./T2/bin/simulador$exe T2/bin/multitarefa_c.mob"
+asm=()
+for fonte in so/so.c usuario/*.c; do
+  saida="bin/$(basename "${fonte%.c}").asm"
+  "./bin/mcc$exe" -Iusuario "$fonte" -o "$saida"
+  asm+=("$saida")
+done
+"./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm usuario/sistema.asm \
+  "${asm[@]}" -o bin/so.mob
+
+echo "Executar da raiz: ./T2/bin/simulador$exe T2/bin/so.mob"

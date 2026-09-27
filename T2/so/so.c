@@ -1,6 +1,6 @@
 #define N_PROC 8
 #define TAM_PILHA 256
-#define N_PROGRAMAS 1
+#define N_PROGRAMAS 2
 
 #define LIVRE 0
 #define PRONTO 1
@@ -31,6 +31,7 @@ void so_ocioso(void);
 void so_fim_processo(void);
 
 void init(void);
+void escritor(void);
 
 struct processo {
     int pid;
@@ -43,7 +44,10 @@ struct programa {
     void (*entrada)(void);
 };
 
-struct programa programas[N_PROGRAMAS] = { { "init", init } };
+struct programa programas[N_PROGRAMAS] = {
+    { "init", init },
+    { "escritor", escritor }
+};
 
 struct processo tabela[N_PROC];
 int pilhas[N_PROC][TAM_PILHA];
@@ -151,9 +155,30 @@ int so_cria_processo(char *nome)
     return p->pid;
 }
 
+int busca_pid(int pid)
+{
+    int i;
+    for (i = 0; i < N_PROC; i++) {
+        if (tabela[i].estado != LIVRE && tabela[i].pid == pid) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void so_encerra(void)
 {
+    int i;
+
     k_puts("\nSO: init terminou, fim da execucao\n");
+    k_puts("SO: processos ainda vivos:");
+    for (i = 0; i < N_PROC; i++) {
+        if (tabela[i].estado != LIVRE) {
+            k_putc(' ');
+            k_int(tabela[i].pid);
+        }
+    }
+    k_putc(10);
     k_para();
 }
 
@@ -175,10 +200,40 @@ void so_salva_estado(int *quadro)
     }
 }
 
+void sc_le(struct processo *p)
+{
+    while ((k_in(2) & 2) == 0) {
+    }
+    p->quadro[Q_R0] = k_in(1);
+}
+
 void sc_escreve(struct processo *p)
 {
     k_putc(p->quadro[Q_R1]);
     p->quadro[Q_R0] = 0;
+}
+
+void sc_cria_proc(struct processo *p)
+{
+    p->quadro[Q_R0] = so_cria_processo((char *) p->quadro[Q_R1]);
+}
+
+void sc_mata_proc(struct processo *p)
+{
+    int pid;
+    int i;
+
+    pid = p->quadro[Q_R1];
+    if (pid == 0) {
+        pid = p->pid;
+    }
+    i = busca_pid(pid);
+    if (i < 0) {
+        p->quadro[Q_R0] = -1;
+        return;
+    }
+    p->quadro[Q_R0] = 0;
+    so_mata_processo(i);
 }
 
 void so_trata_chamada(void)
@@ -191,10 +246,14 @@ void so_trata_chamada(void)
     }
     p = &tabela[atual];
     id = p->quadro[Q_R0];
-    if (id == SO_ESCREVE) {
+    if (id == SO_LE) {
+        sc_le(p);
+    } else if (id == SO_ESCREVE) {
         sc_escreve(p);
+    } else if (id == SO_CRIA_PROC) {
+        sc_cria_proc(p);
     } else if (id == SO_MATA_PROC) {
-        so_mata_processo(atual);
+        sc_mata_proc(p);
     } else {
         p->quadro[Q_R0] = -1;
     }

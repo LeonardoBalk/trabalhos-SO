@@ -86,6 +86,17 @@ _f_k_in:
         pop     bp
         ret
 
+; void copia_quadro(int *de, int *para)
+_f_copia_quadro:
+        push    bp
+        ld      bp, sp
+        ld      r0, (bp+4)
+        ld      r1, (bp+6)
+        call    bios_copia_quadro
+        ld      sp, bp
+        pop     bp
+        ret
+
 ; void k_para(void)
 _f_k_para:
         halt

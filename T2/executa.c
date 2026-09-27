@@ -75,6 +75,8 @@ int main(int argc, char *argv[])
   obj_libera_simbolos(simbolos);
   cpu_liga(cpu);
 
+  long no_so = 0, entradas_so = 0;
+  bool estava_no_so = false;
   while (!cpu_parada(cpu) && cpu_num_instrucoes(cpu) < max) {
     for (int i = 0; i < n_entradas; i++) {
       if (!entradas[i].feita && cpu_num_instrucoes(cpu) >= entradas[i].instante) {
@@ -83,12 +85,19 @@ int main(int argc, char *argv[])
       }
     }
     cpu_executa_1(cpu);
+    bool no_so_agora = cpu_bit(cpu, SR_D);
+    if (no_so_agora) no_so++;
+    if (no_so_agora && !estava_no_so) entradas_so++;
+    estava_no_so = no_so_agora;
     descarrega_console(d);
   }
   descarrega_console(d);
 
-  fprintf(stderr, "\n[%s após %ld instruções]\n",
-          cpu_parada(cpu) ? "parou" : "limite atingido", cpu_num_instrucoes(cpu));
+  long total = cpu_num_instrucoes(cpu);
+  fprintf(stderr, "\n[%s após %ld instruções; %ld no SO (%.1f%%) em %ld entradas, %.0f por entrada]\n",
+          cpu_parada(cpu) ? "parou" : "limite atingido", total, no_so,
+          total ? 100.0 * no_so / total : 0.0, entradas_so,
+          entradas_so ? (double)no_so / entradas_so : 0.0);
   cpu_destroi(cpu);
   disp_destroi(d);
   mem_destroi(m);

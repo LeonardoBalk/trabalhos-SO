@@ -1,11 +1,17 @@
+#include "config.h"
+
 #define N_PROC 8
 #define TAM_PILHA 256
-#define N_PROGRAMAS 3
-#define PERIODO_RELOGIO 5000
+#define N_PROGRAMAS 6
+
+#define ESC_SIMPLES 1
+#define ESC_CIRCULAR 2
+#define ESC_PRIORIDADE 3
 
 #define LIVRE 0
 #define PRONTO 1
 #define BLOQUEADO 2
+#define EXECUTANDO 3
 
 #define BLOQ_LE 1
 #define BLOQ_ESCREVE 2
@@ -35,10 +41,14 @@ int k_in(int porta);
 void k_para(void);
 void so_ocioso(void);
 void so_fim_processo(void);
+void copia_quadro(int *de, int *para);
 
 void init(void);
 void escritor(void);
 void leitor(void);
+void cpu_a(void);
+void cpu_b(void);
+void cpu_c(void);
 
 struct processo {
     int pid;
@@ -56,13 +66,22 @@ struct programa {
 struct programa programas[N_PROGRAMAS] = {
     { "init", init },
     { "escritor", escritor },
-    { "leitor", leitor }
+    { "leitor", leitor },
+    { "cpu_a", cpu_a },
+    { "cpu_b", cpu_b },
+    { "cpu_c", cpu_c }
 };
 
 struct processo tabela[N_PROC];
 int pilhas[N_PROC][TAM_PILHA];
 int atual;
 int proximo_pid;
+int n_bloqueados;
+
+int fila[N_PROC];
+int fila_inicio;
+int fila_n;
+int quantum_restante;
 
 void k_putc(int c)
 {
@@ -110,12 +129,44 @@ int str_igual(char *a, char *b)
     return *a == *b;
 }
 
-void copia_quadro(int *de, int *para)
+void fila_insere(int i)
+{
+    fila[(fila_inicio + fila_n) % N_PROC] = i;
+    fila_n = fila_n + 1;
+}
+
+int fila_remove_primeiro(void)
 {
     int i;
-    for (i = 0; i < 16; i++) {
-        para[i] = de[i];
+    i = fila[fila_inicio];
+    fila_inicio = (fila_inicio + 1) % N_PROC;
+    fila_n = fila_n - 1;
+    return i;
+}
+
+void fila_retira(int i)
+{
+    int n;
+    int k;
+    int x;
+
+    if (fila_n > 0 && fila[fila_inicio] == i) {
+        fila_remove_primeiro();
+        return;
     }
+    n = fila_n;
+    for (k = 0; k < n; k++) {
+        x = fila_remove_primeiro();
+        if (x != i) {
+            fila_insere(x);
+        }
+    }
+}
+
+void so_torna_pronto(int i)
+{
+    tabela[i].estado = PRONTO;
+    fila_insere(i);
 }
 
 int busca_programa(char *nome)
@@ -123,6 +174,17 @@ int busca_programa(char *nome)
     int i;
     for (i = 0; i < N_PROGRAMAS; i++) {
         if (str_igual(programas[i].nome, nome)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int busca_pid(int pid)
+{
+    int i;
+    for (i = 0; i < N_PROC; i++) {
+        if (tabela[i].estado != LIVRE && tabela[i].pid == pid) {
             return i;
         }
     }
@@ -161,19 +223,8 @@ int so_cria_processo(char *nome)
     p->quadro[Q_SR] = SR_USUARIO;
     p->pid = proximo_pid;
     proximo_pid = proximo_pid + 1;
-    p->estado = PRONTO;
+    so_torna_pronto(i);
     return p->pid;
-}
-
-int busca_pid(int pid)
-{
-    int i;
-    for (i = 0; i < N_PROC; i++) {
-        if (tabela[i].estado != LIVRE && tabela[i].pid == pid) {
-            return i;
-        }
-    }
-    return -1;
 }
 
 void so_encerra(void)
@@ -192,22 +243,29 @@ void so_encerra(void)
     k_para();
 }
 
-void so_desbloqueia(struct processo *p, int retorno)
+void so_desbloqueia(int i, int retorno)
 {
-    p->quadro[Q_R0] = retorno;
-    p->estado = PRONTO;
+    tabela[i].quadro[Q_R0] = retorno;
+    n_bloqueados = n_bloqueados - 1;
+    so_torna_pronto(i);
 }
 
 void so_bloqueia(struct processo *p, int motivo)
 {
     p->estado = BLOQUEADO;
     p->motivo = motivo;
+    n_bloqueados = n_bloqueados + 1;
 }
 
 void so_mata_processo(int i)
 {
     int j;
 
+    if (tabela[i].estado == PRONTO) {
+        fila_retira(i);
+    } else if (tabela[i].estado == BLOQUEADO) {
+        n_bloqueados = n_bloqueados - 1;
+    }
     tabela[i].estado = LIVRE;
     if (i == atual) {
         atual = -1;
@@ -218,7 +276,7 @@ void so_mata_processo(int i)
     for (j = 0; j < N_PROC; j++) {
         if (tabela[j].estado == BLOQUEADO && tabela[j].motivo == BLOQ_ESPERA
             && tabela[j].espera == tabela[i].pid) {
-            so_desbloqueia(&tabela[j], 0);
+            so_desbloqueia(j, 0);
         }
     }
 }
@@ -259,19 +317,6 @@ void sc_escreve(struct processo *p)
     }
 }
 
-void sc_espera_proc(struct processo *p)
-{
-    int pid;
-
-    pid = p->quadro[Q_R1];
-    if (pid == p->pid || busca_pid(pid) < 0) {
-        p->quadro[Q_R0] = -1;
-        return;
-    }
-    p->espera = pid;
-    so_bloqueia(p, BLOQ_ESPERA);
-}
-
 void sc_cria_proc(struct processo *p)
 {
     p->quadro[Q_R0] = so_cria_processo((char *) p->quadro[Q_R1]);
@@ -293,6 +338,19 @@ void sc_mata_proc(struct processo *p)
     }
     p->quadro[Q_R0] = 0;
     so_mata_processo(i);
+}
+
+void sc_espera_proc(struct processo *p)
+{
+    int pid;
+
+    pid = p->quadro[Q_R1];
+    if (pid == p->pid || busca_pid(pid) < 0) {
+        p->quadro[Q_R0] = -1;
+        return;
+    }
+    p->espera = pid;
+    so_bloqueia(p, BLOQ_ESPERA);
 }
 
 void so_trata_chamada(void)
@@ -320,6 +378,13 @@ void so_trata_chamada(void)
     }
 }
 
+void so_trata_relogio(void)
+{
+    if (atual >= 0 && quantum_restante > 0) {
+        quantum_restante = quantum_restante - 1;
+    }
+}
+
 void so_trata_excecao(int irq)
 {
     if (atual < 0) {
@@ -339,33 +404,63 @@ void so_trata_pendencias(void)
     int i;
     struct processo *p;
 
+    if (n_bloqueados == 0) {
+        return;
+    }
     for (i = 0; i < N_PROC; i++) {
         p = &tabela[i];
         if (p->estado != BLOQUEADO) {
             continue;
         }
         if (p->motivo == BLOQ_LE && console_tem_entrada()) {
-            so_desbloqueia(p, k_in(1));
+            so_desbloqueia(i, k_in(1));
         } else if (p->motivo == BLOQ_ESCREVE && console_pode_escrever()) {
             k_putc(p->quadro[Q_R1]);
-            so_desbloqueia(p, 0);
+            so_desbloqueia(i, 0);
         }
     }
 }
 
-void so_escalona(void)
+int escolhe_simples(void)
 {
     int i;
-
-    if (atual >= 0 && tabela[atual].estado == PRONTO) {
-        return;
-    }
-    atual = -1;
     for (i = 0; i < N_PROC; i++) {
         if (tabela[i].estado == PRONTO) {
-            atual = i;
+            return i;
+        }
+    }
+    return -1;
+}
+
+int escolhe_circular(void)
+{
+    if (fila_n == 0) {
+        return -1;
+    }
+    return fila[fila_inicio];
+}
+
+int so_escolhe(void)
+{
+    if (ESCALONADOR == ESC_SIMPLES) {
+        return escolhe_simples();
+    }
+    return escolhe_circular();
+}
+
+void so_escalona(void)
+{
+    if (atual >= 0 && tabela[atual].estado == EXECUTANDO) {
+        if (ESCALONADOR == ESC_SIMPLES || quantum_restante > 0) {
             return;
         }
+        so_torna_pronto(atual);
+    }
+    atual = so_escolhe();
+    if (atual >= 0) {
+        fila_retira(atual);
+        tabela[atual].estado = EXECUTANDO;
+        quantum_restante = QUANTUM;
     }
 }
 
@@ -393,6 +488,7 @@ void so_trata_interrupcao(int irq, int *quadro)
     if (irq == IRQ_SISTEMA) {
         so_trata_chamada();
     } else if (irq == IRQ_RELOGIO) {
+        so_trata_relogio();
     } else if (irq == IRQ_CONSOLE) {
     } else {
         so_trata_excecao(irq);
@@ -411,6 +507,9 @@ void so_inicia(int *quadro)
     }
     atual = -1;
     proximo_pid = 1;
+    n_bloqueados = 0;
+    fila_inicio = 0;
+    fila_n = 0;
     k_out(0x22, PERIODO_RELOGIO >> 8);
     k_out(0x23, PERIODO_RELOGIO & 255);
     k_out(0x30, 5);

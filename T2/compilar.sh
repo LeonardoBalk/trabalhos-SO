@@ -39,10 +39,19 @@ ex=bios_mancha/exemplos/multitarefa_c
 "./bin/montador$exe" bios_mancha/src/bios.asm "$ex/ponte.asm" bin/multitarefa_c.asm \
   -o bin/multitarefa_c.mob
 
+case "${ESCALONADOR:-circular}" in
+  simples) escalonador=1 ;;
+  circular) escalonador=2 ;;
+  prioridade) escalonador=3 ;;
+  *) echo "ESCALONADOR deve ser simples, circular ou prioridade" >&2; exit 1 ;;
+esac
+printf '#define ESCALONADOR %s\n#define QUANTUM %s\n#define PERIODO_RELOGIO %s\n' \
+  "$escalonador" "${QUANTUM:-2}" "${PERIODO:-5000}" > bin/config.h
+
 asm=()
 for fonte in so/so.c usuario/*.c; do
   saida="bin/$(basename "${fonte%.c}").asm"
-  "./bin/mcc$exe" -Iusuario "$fonte" -o "$saida"
+  "./bin/mcc$exe" -Iusuario -Ibin "$fonte" -o "$saida"
   asm+=("$saida")
 done
 "./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm usuario/sistema.asm \

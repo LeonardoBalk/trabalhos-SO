@@ -1,9 +1,15 @@
 #define N_PROC 8
 #define TAM_PILHA 256
-#define N_PROGRAMAS 2
+#define N_PROGRAMAS 3
+#define PERIODO_RELOGIO 5000
 
 #define LIVRE 0
 #define PRONTO 1
+#define BLOQUEADO 2
+
+#define BLOQ_LE 1
+#define BLOQ_ESCREVE 2
+#define BLOQ_ESPERA 3
 
 #define SO_LE 1
 #define SO_ESCREVE 2
@@ -32,10 +38,13 @@ void so_fim_processo(void);
 
 void init(void);
 void escritor(void);
+void leitor(void);
 
 struct processo {
     int pid;
     int estado;
+    int motivo;
+    int espera;
     int quadro[16];
 };
 
@@ -46,7 +55,8 @@ struct programa {
 
 struct programa programas[N_PROGRAMAS] = {
     { "init", init },
-    { "escritor", escritor }
+    { "escritor", escritor },
+    { "leitor", leitor }
 };
 
 struct processo tabela[N_PROC];
@@ -182,14 +192,34 @@ void so_encerra(void)
     k_para();
 }
 
+void so_desbloqueia(struct processo *p, int retorno)
+{
+    p->quadro[Q_R0] = retorno;
+    p->estado = PRONTO;
+}
+
+void so_bloqueia(struct processo *p, int motivo)
+{
+    p->estado = BLOQUEADO;
+    p->motivo = motivo;
+}
+
 void so_mata_processo(int i)
 {
+    int j;
+
     tabela[i].estado = LIVRE;
     if (i == atual) {
         atual = -1;
     }
     if (tabela[i].pid == 1) {
         so_encerra();
+    }
+    for (j = 0; j < N_PROC; j++) {
+        if (tabela[j].estado == BLOQUEADO && tabela[j].motivo == BLOQ_ESPERA
+            && tabela[j].espera == tabela[i].pid) {
+            so_desbloqueia(&tabela[j], 0);
+        }
     }
 }
 
@@ -200,17 +230,46 @@ void so_salva_estado(int *quadro)
     }
 }
 
+int console_tem_entrada(void)
+{
+    return (k_in(2) & 2) != 0;
+}
+
+int console_pode_escrever(void)
+{
+    return (k_in(2) & 1) != 0;
+}
+
 void sc_le(struct processo *p)
 {
-    while ((k_in(2) & 2) == 0) {
+    if (console_tem_entrada()) {
+        p->quadro[Q_R0] = k_in(1);
+    } else {
+        so_bloqueia(p, BLOQ_LE);
     }
-    p->quadro[Q_R0] = k_in(1);
 }
 
 void sc_escreve(struct processo *p)
 {
-    k_putc(p->quadro[Q_R1]);
-    p->quadro[Q_R0] = 0;
+    if (console_pode_escrever()) {
+        k_putc(p->quadro[Q_R1]);
+        p->quadro[Q_R0] = 0;
+    } else {
+        so_bloqueia(p, BLOQ_ESCREVE);
+    }
+}
+
+void sc_espera_proc(struct processo *p)
+{
+    int pid;
+
+    pid = p->quadro[Q_R1];
+    if (pid == p->pid || busca_pid(pid) < 0) {
+        p->quadro[Q_R0] = -1;
+        return;
+    }
+    p->espera = pid;
+    so_bloqueia(p, BLOQ_ESPERA);
 }
 
 void sc_cria_proc(struct processo *p)
@@ -254,6 +313,8 @@ void so_trata_chamada(void)
         sc_cria_proc(p);
     } else if (id == SO_MATA_PROC) {
         sc_mata_proc(p);
+    } else if (id == SO_ESPERA_PROC) {
+        sc_espera_proc(p);
     } else {
         p->quadro[Q_R0] = -1;
     }
@@ -271,6 +332,25 @@ void so_trata_excecao(int irq)
     k_int(irq);
     k_putc(10);
     so_mata_processo(atual);
+}
+
+void so_trata_pendencias(void)
+{
+    int i;
+    struct processo *p;
+
+    for (i = 0; i < N_PROC; i++) {
+        p = &tabela[i];
+        if (p->estado != BLOQUEADO) {
+            continue;
+        }
+        if (p->motivo == BLOQ_LE && console_tem_entrada()) {
+            so_desbloqueia(p, k_in(1));
+        } else if (p->motivo == BLOQ_ESCREVE && console_pode_escrever()) {
+            k_putc(p->quadro[Q_R1]);
+            so_desbloqueia(p, 0);
+        }
+    }
 }
 
 void so_escalona(void)
@@ -317,6 +397,7 @@ void so_trata_interrupcao(int irq, int *quadro)
     } else {
         so_trata_excecao(irq);
     }
+    so_trata_pendencias();
     so_escalona();
     so_despacha(quadro);
 }
@@ -330,6 +411,9 @@ void so_inicia(int *quadro)
     }
     atual = -1;
     proximo_pid = 1;
+    k_out(0x22, PERIODO_RELOGIO >> 8);
+    k_out(0x23, PERIODO_RELOGIO & 255);
+    k_out(0x30, 5);
     so_cria_processo("init");
     so_escalona();
     so_despacha(quadro);

@@ -10,21 +10,16 @@ void init_mostra(char *msg, int valor)
 
 void init(void)
 {
-    int a;
-    int b;
-    int c;
+    int escritor;
+    int leitor;
 
-    a = so_cria_proc("escritor");
-    init_mostra("criou escritor, pid ", a);
-    b = so_cria_proc("escritor");
-    init_mostra("criou escritor, pid ", b);
-    init_mostra("programa inexistente: ", so_cria_proc("nada"));
-    init_mostra("matou o primeiro: ", so_mata_proc(a));
-    init_mostra("matou de novo: ", so_mata_proc(a));
-    init_mostra("criou outro, pid ", so_cria_proc("escritor"));
+    leitor = so_cria_proc("leitor");
+    escritor = so_cria_proc("escritor");
+    init_mostra("criou leitor, pid ", leitor);
+    init_mostra("criou escritor, pid ", escritor);
+    init_mostra("esperar a si mesmo: ", so_espera_proc(1));
+    init_mostra("esperar pid inexistente: ", so_espera_proc(99));
 
-    print_str("init: digite um caractere: ");
-    c = getchar();
-    putchar(c);
-    putchar(10);
+    init_mostra("esperou o leitor: ", so_espera_proc(leitor));
+    init_mostra("esperou o escritor ja morto: ", so_espera_proc(escritor));
 }

@@ -2,7 +2,7 @@
 
 #define N_PROC 8
 #define TAM_PILHA 256
-#define N_PROGRAMAS 6
+#define N_PROGRAMAS 7
 
 #define ESC_SIMPLES 1
 #define ESC_CIRCULAR 2
@@ -49,12 +49,14 @@ void leitor(void);
 void cpu_a(void);
 void cpu_b(void);
 void cpu_c(void);
+void interativo(void);
 
 struct processo {
     int pid;
     int estado;
     int motivo;
     int espera;
+    int prio;
     int quadro[16];
 };
 
@@ -69,7 +71,8 @@ struct programa programas[N_PROGRAMAS] = {
     { "leitor", leitor },
     { "cpu_a", cpu_a },
     { "cpu_b", cpu_b },
-    { "cpu_c", cpu_c }
+    { "cpu_c", cpu_c },
+    { "interativo", interativo }
 };
 
 struct processo tabela[N_PROC];
@@ -223,6 +226,7 @@ int so_cria_processo(char *nome)
     p->quadro[Q_SR] = SR_USUARIO;
     p->pid = proximo_pid;
     proximo_pid = proximo_pid + 1;
+    p->prio = 500;
     so_torna_pronto(i);
     return p->pid;
 }
@@ -440,12 +444,39 @@ int escolhe_circular(void)
     return fila[fila_inicio];
 }
 
+int escolhe_prioridade(void)
+{
+    int k;
+    int i;
+    int melhor;
+
+    melhor = -1;
+    for (k = 0; k < fila_n; k++) {
+        i = fila[(fila_inicio + k) % N_PROC];
+        if (melhor < 0 || tabela[i].prio < tabela[melhor].prio) {
+            melhor = i;
+        }
+    }
+    return melhor;
+}
+
 int so_escolhe(void)
 {
     if (ESCALONADOR == ESC_SIMPLES) {
         return escolhe_simples();
     }
+    if (ESCALONADOR == ESC_PRIORIDADE) {
+        return escolhe_prioridade();
+    }
     return escolhe_circular();
+}
+
+void so_atualiza_prio(int i)
+{
+    int t_exec;
+
+    t_exec = QUANTUM - quantum_restante;
+    tabela[i].prio = (tabela[i].prio + t_exec * 1000 / QUANTUM) / 2;
 }
 
 void so_escalona(void)
@@ -454,7 +485,10 @@ void so_escalona(void)
         if (ESCALONADOR == ESC_SIMPLES || quantum_restante > 0) {
             return;
         }
+        so_atualiza_prio(atual);
         so_torna_pronto(atual);
+    } else if (atual >= 0) {
+        so_atualiza_prio(atual);
     }
     atual = so_escolhe();
     if (atual >= 0) {

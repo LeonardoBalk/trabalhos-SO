@@ -8,7 +8,7 @@ void init(void)
     pids[0] = so_cria_proc("cpu_a");
     pids[1] = so_cria_proc("cpu_b");
     pids[2] = so_cria_proc("cpu_c");
-    pids[3] = so_cria_proc("leitor");
+    pids[3] = so_cria_proc("interativo");
     for (i = 0; i < 4; i++) {
         so_espera_proc(pids[i]);
     }

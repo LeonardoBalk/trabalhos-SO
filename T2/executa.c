@@ -24,14 +24,19 @@ static void poe_texto(disp_t *d, const char *s)
   }
 }
 
-static void descarrega_console(disp_t *d)
+static bool carimbo;
+static bool inicio_linha = true;
+
+static void descarrega_console(disp_t *d, long instante)
 {
   int n;
   const char *s = console_saida(d, &n);
-  if (n > 0) {
-    fwrite(s, 1, n, stdout);
-    console_limpa_saida(d);
+  for (int i = 0; i < n; i++) {
+    if (carimbo && inicio_linha) printf("[%8ld] ", instante);
+    putchar(s[i]);
+    inicio_linha = s[i] == '\n';
   }
+  if (n > 0) console_limpa_saida(d);
 }
 
 int main(int argc, char *argv[])
@@ -42,7 +47,9 @@ int main(int argc, char *argv[])
   const char *arquivo = NULL;
 
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+    if (strcmp(argv[i], "-t") == 0) {
+      carimbo = true;
+    } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
       max = atol(argv[++i]);
     } else if (strcmp(argv[i], "-e") == 0 && i + 1 < argc && n_entradas < MAX_ENTRADAS) {
       char *arg = argv[++i];
@@ -59,7 +66,7 @@ int main(int argc, char *argv[])
     }
   }
   if (arquivo == NULL) {
-    fprintf(stderr, "uso: %s [-n max] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
+    fprintf(stderr, "uso: %s [-t] [-n max] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
     return 2;
   }
 
@@ -89,9 +96,9 @@ int main(int argc, char *argv[])
     if (no_so_agora) no_so++;
     if (no_so_agora && !estava_no_so) entradas_so++;
     estava_no_so = no_so_agora;
-    descarrega_console(d);
+    descarrega_console(d, cpu_num_instrucoes(cpu));
   }
-  descarrega_console(d);
+  descarrega_console(d, cpu_num_instrucoes(cpu));
 
   long total = cpu_num_instrucoes(cpu);
   fprintf(stderr, "\n[%s após %ld instruções; %ld no SO (%.1f%%) em %ld entradas, %.0f por entrada]\n",

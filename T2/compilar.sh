@@ -49,12 +49,12 @@ printf '#define ESCALONADOR %s\n#define QUANTUM %s\n#define PERIODO_RELOGIO %s\n
   "$escalonador" "${QUANTUM:-2}" "${PERIODO:-5000}" > bin/config.h
 
 asm=()
-for fonte in so/so.c usuario/*.c; do
+for fonte in so/*.c usuario/*.c; do
   saida="bin/$(basename "${fonte%.c}").asm"
   "./bin/mcc$exe" -Iusuario -Ibin "$fonte" -o "$saida"
   asm+=("$saida")
 done
-"./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm usuario/sistema.asm \
+"./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm so/tempo.asm usuario/sistema.asm \
   "${asm[@]}" -o bin/so.mob
 
 echo "Executar da raiz: ./T2/bin/simulador$exe T2/bin/so.mob"

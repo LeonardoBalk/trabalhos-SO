@@ -43,6 +43,15 @@ void so_ocioso(void);
 void so_fim_processo(void);
 void copia_quadro(int *de, int *para);
 
+void met_inicia(void);
+void met_entrada(int irq);
+void met_ocioso(void);
+void met_cria(int pid, int prog);
+void met_estado(int pid, int novo);
+void met_preempcao(int pid);
+void met_morte(int pid);
+void met_imprime(void);
+
 void init(void);
 void escritor(void);
 void leitor(void);
@@ -79,7 +88,7 @@ struct processo tabela[N_PROC];
 int pilhas[N_PROC][TAM_PILHA];
 int atual;
 int proximo_pid;
-int n_bloqueados;
+int n_bloq[4];
 
 int fila[N_PROC];
 int fila_inicio;
@@ -149,27 +158,37 @@ int fila_remove_primeiro(void)
 
 void fila_retira(int i)
 {
-    int n;
     int k;
-    int x;
+    int a;
 
     if (fila_n > 0 && fila[fila_inicio] == i) {
         fila_remove_primeiro();
         return;
     }
-    n = fila_n;
-    for (k = 0; k < n; k++) {
-        x = fila_remove_primeiro();
-        if (x != i) {
-            fila_insere(x);
-        }
+    a = fila_inicio;
+    for (k = 0; k < fila_n && fila[a] != i; k++) {
+        a = (a + 1) % N_PROC;
     }
+    if (k == fila_n) {
+        return;
+    }
+    for (k = k + 1; k < fila_n; k++) {
+        fila[a] = fila[(a + 1) % N_PROC];
+        a = (a + 1) % N_PROC;
+    }
+    fila_n = fila_n - 1;
 }
 
 void so_torna_pronto(int i)
 {
+    met_estado(tabela[i].pid, PRONTO);
     tabela[i].estado = PRONTO;
     fila_insere(i);
+}
+
+char *so_nome_programa(int prog)
+{
+    return programas[prog].nome;
 }
 
 int busca_programa(char *nome)
@@ -227,6 +246,7 @@ int so_cria_processo(char *nome)
     p->pid = proximo_pid;
     proximo_pid = proximo_pid + 1;
     p->prio = 500;
+    met_cria(p->pid, prog);
     so_torna_pronto(i);
     return p->pid;
 }
@@ -244,21 +264,23 @@ void so_encerra(void)
         }
     }
     k_putc(10);
+    met_imprime();
     k_para();
 }
 
 void so_desbloqueia(int i, int retorno)
 {
     tabela[i].quadro[Q_R0] = retorno;
-    n_bloqueados = n_bloqueados - 1;
+    n_bloq[tabela[i].motivo] = n_bloq[tabela[i].motivo] - 1;
     so_torna_pronto(i);
 }
 
 void so_bloqueia(struct processo *p, int motivo)
 {
+    met_estado(p->pid, BLOQUEADO);
     p->estado = BLOQUEADO;
     p->motivo = motivo;
-    n_bloqueados = n_bloqueados + 1;
+    n_bloq[motivo] = n_bloq[motivo] + 1;
 }
 
 void so_mata_processo(int i)
@@ -268,8 +290,9 @@ void so_mata_processo(int i)
     if (tabela[i].estado == PRONTO) {
         fila_retira(i);
     } else if (tabela[i].estado == BLOQUEADO) {
-        n_bloqueados = n_bloqueados - 1;
+        n_bloq[tabela[i].motivo] = n_bloq[tabela[i].motivo] - 1;
     }
+    met_morte(tabela[i].pid);
     tabela[i].estado = LIVRE;
     if (i == atual) {
         atual = -1;
@@ -406,9 +429,15 @@ void so_trata_excecao(int irq)
 void so_trata_pendencias(void)
 {
     int i;
+    int console;
     struct processo *p;
 
-    if (n_bloqueados == 0) {
+    if (n_bloq[BLOQ_LE] == 0 && n_bloq[BLOQ_ESCREVE] == 0) {
+        return;
+    }
+    console = k_in(2);
+    if ((n_bloq[BLOQ_LE] == 0 || (console & 2) == 0)
+        && (n_bloq[BLOQ_ESCREVE] == 0 || (console & 1) == 0)) {
         return;
     }
     for (i = 0; i < N_PROC; i++) {
@@ -416,9 +445,10 @@ void so_trata_pendencias(void)
         if (p->estado != BLOQUEADO) {
             continue;
         }
-        if (p->motivo == BLOQ_LE && console_tem_entrada()) {
+        if (p->motivo == BLOQ_LE && (console & 2) != 0) {
             so_desbloqueia(i, k_in(1));
-        } else if (p->motivo == BLOQ_ESCREVE && console_pode_escrever()) {
+            console = k_in(2);
+        } else if (p->motivo == BLOQ_ESCREVE && (console & 1) != 0) {
             k_putc(p->quadro[Q_R1]);
             so_desbloqueia(i, 0);
         }
@@ -486,6 +516,7 @@ void so_escalona(void)
             return;
         }
         so_atualiza_prio(atual);
+        met_preempcao(tabela[atual].pid);
         so_torna_pronto(atual);
     } else if (atual >= 0) {
         so_atualiza_prio(atual);
@@ -493,6 +524,7 @@ void so_escalona(void)
     atual = so_escolhe();
     if (atual >= 0) {
         fila_retira(atual);
+        met_estado(tabela[atual].pid, EXECUTANDO);
         tabela[atual].estado = EXECUTANDO;
         quantum_restante = QUANTUM;
     }
@@ -507,6 +539,7 @@ void so_despacha(int *quadro)
         copia_quadro(tabela[atual].quadro, quadro);
         return;
     }
+    met_ocioso();
     for (i = 0; i < 16; i++) {
         quadro[i] = 0;
     }
@@ -518,6 +551,7 @@ void so_despacha(int *quadro)
 
 void so_trata_interrupcao(int irq, int *quadro)
 {
+    met_entrada(irq);
     so_salva_estado(quadro);
     if (irq == IRQ_SISTEMA) {
         so_trata_chamada();
@@ -541,12 +575,15 @@ void so_inicia(int *quadro)
     }
     atual = -1;
     proximo_pid = 1;
-    n_bloqueados = 0;
+    for (i = 0; i < 4; i++) {
+        n_bloq[i] = 0;
+    }
     fila_inicio = 0;
     fila_n = 0;
     k_out(0x22, PERIODO_RELOGIO >> 8);
     k_out(0x23, PERIODO_RELOGIO & 255);
     k_out(0x30, 5);
+    met_inicia();
     so_cria_processo("init");
     so_escalona();
     so_despacha(quadro);

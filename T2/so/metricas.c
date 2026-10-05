@@ -1,6 +1,6 @@
 #include "config.h"
 
-#define MAX_PIDS 20
+#define MAX_PIDS 200
 #define N_IRQ 16
 #define N_ESTADOS 4
 #define BASE 10000
@@ -39,7 +39,11 @@ struct metrica {
     int n_respostas;
 };
 
-struct metrica met[MAX_PIDS];
+struct metrica *met_area(void);
+int met_area_tamanho(void);
+void k_para(void);
+
+struct metrica *met;
 struct tempo agora;
 struct tempo base_relogio;
 struct tempo ocioso_total;
@@ -65,20 +69,7 @@ void t_sub(struct tempo *r, struct tempo *x, struct tempo *y);
 
 void t_acumula(struct tempo *t, struct tempo *desde);
 
-// r = x / n, com n < 327
-void t_div(struct tempo *r, struct tempo *x, int n)
-{
-    int resto;
-    int parte;
-
-    r->alto = x->alto / n;
-    resto = x->alto % n;
-    parte = resto * 100 + x->baixo / 100;
-    r->baixo = (parte / n) * 100;
-    resto = parte % n;
-    parte = resto * 100 + x->baixo % 100;
-    r->baixo = r->baixo + parte / n;
-}
+void t_div(struct tempo *r, struct tempo *x, int n);
 
 void k_tempo(struct tempo *t, int largura)
 {
@@ -122,11 +113,17 @@ void k_int_w(int v, int largura)
 
 int le_contador(void);
 
+int t_antes(struct tempo *t, int alto, int baixo);
+
 // o contador pode ter zerado com a interrupção do relógio ainda pendente
 void met_le_agora(void)
 {
     int c;
+    int alto;
+    int baixo;
 
+    alto = agora.alto;
+    baixo = agora.baixo;
     c = le_contador();
     if (c < ultimo_contador && !tique_antecipado) {
         t_soma_int(&base_relogio, PERIODO_RELOGIO);
@@ -135,11 +132,22 @@ void met_le_agora(void)
     ultimo_contador = c;
     agora = base_relogio;
     t_soma_int(&agora, c);
+    // se o SO demora mais que um período, tiques se perdem; o tempo não volta
+    while (t_antes(&agora, alto, baixo)) {
+        t_soma_int(&base_relogio, PERIODO_RELOGIO);
+        t_soma_int(&agora, PERIODO_RELOGIO);
+    }
 }
 
 void met_inicia(void)
 {
     int i;
+
+    met = met_area();
+    if (sizeof(struct metrica) * MAX_PIDS > met_area_tamanho()) {
+        k_puts("SO: area de metricas pequena demais\n");
+        k_para();
+    }
     for (i = 0; i < MAX_PIDS; i++) {
         met[i].usado = 0;
     }
@@ -147,6 +155,7 @@ void met_inicia(void)
         n_irq[i] = 0;
     }
     t_zera(&base_relogio);
+    t_zera(&agora);
     t_zera(&ocioso_total);
     ocioso = 0;
     ultimo_contador = 0;
@@ -188,16 +197,17 @@ struct metrica *met_de(int pid)
     return &met[pid - 1];
 }
 
-void met_cria(int pid, int prog)
+// devolve 0 se não há onde guardar as métricas desse pid
+int met_cria(int pid, int prog)
 {
     struct metrica *m;
     int e;
 
-    n_criados = n_criados + 1;
     m = met_de(pid);
     if (m == 0) {
-        return;
+        return 0;
     }
+    n_criados = n_criados + 1;
     m->usado = 1;
     m->vivo = 1;
     m->prog = prog;
@@ -212,6 +222,7 @@ void met_cria(int pid, int prog)
         t_zera(&m->em_estado[e]);
         m->entradas[e] = 0;
     }
+    return 1;
 }
 
 void met_estado(int pid, int novo)
@@ -289,10 +300,23 @@ void met_imprime(void)
     k_puts("\ninterrupcoes:      ");
     met_imprime_irq(" sistema=", 7);
     met_imprime_irq(" console=", 8);
+    met_imprime_irq(" disco=", 9);
     met_imprime_irq(" relogio=", 10);
-    k_puts(" excecoes=");
-    k_int(n_irq[1] + n_irq[2] + n_irq[3] + n_irq[4] + n_irq[5]);
+    k_puts("\nexcecoes:          ");
+    met_imprime_irq(" segmento=", 1);
+    met_imprime_irq(" privilegiada=", 2);
+    met_imprime_irq(" div_zero=", 3);
+    met_imprime_irq(" ilegal=", 4);
+    met_imprime_irq(" pagina=", 5);
     k_putc(10);
+
+    for (i = 0; i < MAX_PIDS; i++) {
+        m = &met[i];
+        if (m->usado && m->vivo && m->estado != LIVRE) {
+            t_acumula(&m->em_estado[m->estado], &m->desde);
+            m->desde = agora;
+        }
+    }
 
     k_puts("\npid programa   retorno prmp  npr");
     k_puts("  pronto  nbl bloqueado");

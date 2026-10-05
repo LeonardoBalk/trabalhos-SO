@@ -13,6 +13,8 @@ _kernel_inicio:
         st      r0, (56)
         ld      r0, _so_int8
         st      r0, (64)
+        ld      r0, _so_int9
+        st      r0, (72)
         ld      r0, _so_int10
         st      r0, (80)
 
@@ -43,6 +45,9 @@ _so_int7:
         jmp     _so_entrada
 _so_int8:
         ld      r0, 8
+        jmp     _so_entrada
+_so_int9:
+        ld      r0, 9
         jmp     _so_entrada
 _so_int10:
         ld      r0, 10
@@ -93,6 +98,30 @@ _f_copia_quadro:
         ld      r0, (bp+4)
         ld      r1, (bp+6)
         call    bios_copia_quadro
+        ld      sp, bp
+        pop     bp
+        ret
+
+; int str_igual(char *a, char *b)
+_f_str_igual:
+        push    bp
+        ld      bp, sp
+        ld      r1, (bp+4)
+        ld      r2, (bp+6)
+_str_laco:
+        ld      r3, 0
+        ldb     r3, (r1+)
+        ld      r4, 0
+        ldb     r4, (r2+)
+        cmp     r3, r4
+        jmpc    ne, _str_diferente
+        cmp     r3, 0
+        jmpc    ne, _str_laco
+        ld      r0, 1
+        jmp     _str_fim
+_str_diferente:
+        ld      r0, 0
+_str_fim:
         ld      sp, bp
         pop     bp
         ret

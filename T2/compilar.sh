@@ -6,6 +6,15 @@ if [ -d /c/msys64/mingw64/bin ]; then
 fi
 cd "$(dirname "$0")"
 
+quantum="${QUANTUM:-2}"
+periodo="${PERIODO:-5000}"
+if ! [[ "$quantum" =~ ^[0-9]+$ ]] || [ "$quantum" -lt 1 ] || [ "$quantum" -gt 30 ]; then
+  echo "QUANTUM deve ser um inteiro entre 1 e 30" >&2; exit 1
+fi
+if ! [[ "$periodo" =~ ^[0-9]+$ ]] || [ "$periodo" -lt 2000 ] || [ "$periodo" -gt 30000 ]; then
+  echo "PERIODO deve ser um inteiro entre 2000 e 30000" >&2; exit 1
+fi
+
 cc="${CC:-gcc}"
 src=simulador_completo/src
 mcc_src=compilador_c/src
@@ -46,7 +55,7 @@ case "${ESCALONADOR:-circular}" in
   *) echo "ESCALONADOR deve ser simples, circular ou prioridade" >&2; exit 1 ;;
 esac
 printf '#define ESCALONADOR %s\n#define QUANTUM %s\n#define PERIODO_RELOGIO %s\n' \
-  "$escalonador" "${QUANTUM:-2}" "${PERIODO:-5000}" > bin/config.h
+  "$escalonador" "$quantum" "$periodo" > bin/config.h
 
 asm=()
 for fonte in so/*.c usuario/*.c; do

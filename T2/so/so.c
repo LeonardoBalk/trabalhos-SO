@@ -46,7 +46,7 @@ void copia_quadro(int *de, int *para);
 void met_inicia(void);
 void met_entrada(int irq);
 void met_ocioso(void);
-void met_cria(int pid, int prog);
+int met_cria(int pid, int prog);
 void met_estado(int pid, int novo);
 void met_preempcao(int pid);
 void met_morte(int pid);
@@ -86,6 +86,7 @@ struct programa programas[N_PROGRAMAS] = {
 
 struct processo tabela[N_PROC];
 int pilhas[N_PROC][TAM_PILHA];
+int quadro_zero[16];
 int atual;
 int proximo_pid;
 int n_bloq[4];
@@ -95,8 +96,11 @@ int fila_inicio;
 int fila_n;
 int quantum_restante;
 
+// usado só pelas mensagens do próprio SO, que podem esperar a console
 void k_putc(int c)
 {
+    while ((k_in(2) & 1) == 0) {
+    }
     k_out(1, c);
 }
 
@@ -132,14 +136,7 @@ void k_int(int v)
     }
 }
 
-int str_igual(char *a, char *b)
-{
-    while (*a != 0 && *a == *b) {
-        a = a + 1;
-        b = b + 1;
-    }
-    return *a == *b;
-}
+int str_igual(char *a, char *b);
 
 void fila_insere(int i)
 {
@@ -217,7 +214,6 @@ int so_cria_processo(char *nome)
 {
     int prog;
     int i;
-    int j;
     void (*fim)(void);
     struct processo *p;
 
@@ -230,14 +226,12 @@ int so_cria_processo(char *nome)
             break;
         }
     }
-    if (i == N_PROC) {
+    if (i == N_PROC || !met_cria(proximo_pid, prog)) {
         return -1;
     }
 
     p = &tabela[i];
-    for (j = 0; j < 16; j++) {
-        p->quadro[j] = 0;
-    }
+    copia_quadro(quadro_zero, p->quadro);
     fim = so_fim_processo;
     pilhas[i][TAM_PILHA - 1] = (int) fim;
     p->quadro[Q_SP] = (int) &pilhas[i][TAM_PILHA - 1];
@@ -246,7 +240,6 @@ int so_cria_processo(char *nome)
     p->pid = proximo_pid;
     proximo_pid = proximo_pid + 1;
     p->prio = 500;
-    met_cria(p->pid, prog);
     so_torna_pronto(i);
     return p->pid;
 }
@@ -300,6 +293,9 @@ void so_mata_processo(int i)
     if (tabela[i].pid == 1) {
         so_encerra();
     }
+    if (n_bloq[BLOQ_ESPERA] == 0) {
+        return;
+    }
     for (j = 0; j < N_PROC; j++) {
         if (tabela[j].estado == BLOQUEADO && tabela[j].motivo == BLOQ_ESPERA
             && tabela[j].espera == tabela[i].pid) {
@@ -325,9 +321,10 @@ int console_pode_escrever(void)
     return (k_in(2) & 1) != 0;
 }
 
+// quem já está bloqueado esperando a console tem a vez
 void sc_le(struct processo *p)
 {
-    if (console_tem_entrada()) {
+    if (n_bloq[BLOQ_LE] == 0 && console_tem_entrada()) {
         p->quadro[Q_R0] = k_in(1);
     } else {
         so_bloqueia(p, BLOQ_LE);
@@ -336,7 +333,7 @@ void sc_le(struct processo *p)
 
 void sc_escreve(struct processo *p)
 {
-    if (console_pode_escrever()) {
+    if (n_bloq[BLOQ_ESCREVE] == 0 && console_pode_escrever()) {
         k_putc(p->quadro[Q_R1]);
         p->quadro[Q_R0] = 0;
     } else {
@@ -451,6 +448,7 @@ void so_trata_pendencias(void)
         } else if (p->motivo == BLOQ_ESCREVE && (console & 1) != 0) {
             k_putc(p->quadro[Q_R1]);
             so_desbloqueia(i, 0);
+            console = k_in(2);
         }
     }
 }
@@ -580,10 +578,10 @@ void so_inicia(int *quadro)
     }
     fila_inicio = 0;
     fila_n = 0;
+    met_inicia();
     k_out(0x22, PERIODO_RELOGIO >> 8);
     k_out(0x23, PERIODO_RELOGIO & 255);
     k_out(0x30, 5);
-    met_inicia();
     so_cria_processo("init");
     so_escalona();
     so_despacha(quadro);

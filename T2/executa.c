@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
   descarrega_console(d, cpu_num_instrucoes(cpu));
 
   long total = cpu_num_instrucoes(cpu);
-  fprintf(stderr, "\n[%s após %ld instruções; %ld no SO (%.1f%%) em %ld entradas, %.0f por entrada; %ld ociosas]\n",
+  fprintf(stderr, "\n[%s apos %ld instrucoes; %ld no SO (%.1f%%) em %ld entradas, %.0f por entrada; %ld ociosas]\n",
           cpu_parada(cpu) ? "parou" : "limite atingido", total, no_so,
           total ? 100.0 * no_so / total : 0.0, entradas_so,
           entradas_so ? (double)no_so / entradas_so : 0.0, ocioso);

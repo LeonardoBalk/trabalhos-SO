@@ -8,7 +8,7 @@ portas, troca de pilha e dá o `rete`, e `so/tempo.asm` tem as contas de tempo,
 que em C ficavam lentas demais.
 
 Toda interrupção entra pelo mesmo lugar. No `_kernel_inicio` a ponte troca, no
-vetor, os tratadores das exceções (1 a 5), da chamada de sistema (7), da
+vetor, os tratadores das exceções (1 a 5), da chamada de sistema (7), do
 console (8), do disco (9) e do relógio (10) por tratadores meus. Cada um só põe
 o número da interrupção em `r0` e pula para uma entrada comum, que muda para a
 `pilha_nucleo` e chama `so_trata_interrupcao`. Ali o SO salva o quadro do
@@ -54,9 +54,9 @@ um contador que só cresce, então uma entrada liberada é reaproveitada com out
 pid. O escalonador da parte I é o do enunciado: o atual continua se ainda
 estiver pronto, senão entra o primeiro pronto da tabela.
 
-`SO_LE` e `SO_ESCREVE` fazem a E/S na hora se a console está pronta e não há
-ninguém bloqueado esperando por ela; se não, o processo fica bloqueado com o
-motivo anotado, e a cada interrupção o SO confere o estado da console, completa
+`SO_LE` e `SO_ESCREVE` fazem a E/S na hora se o console está pronto e não há
+ninguém bloqueado esperando por ele; se não, o processo fica bloqueado com o
+motivo anotado, e a cada interrupção o SO confere o estado do console, completa
 as operações pendentes, desbloqueia quem foi atendido e coloca o valor de
 retorno no `r0` do quadro salvo. A condição de ninguém estar esperando evita
 que um processo que chegou depois passe na frente de quem já estava bloqueado.
@@ -64,16 +64,12 @@ que um processo que chegou depois passe na frente de quem já estava bloqueado.
 processo que já morreu, e para o próprio processo; nos outros casos bloqueia,
 e quando um processo morre o SO acorda todos que esperavam por ele.
 
-No simulador a saída da console está sempre pronta, então a escrita nunca
-bloqueia na prática. Para testar esse caminho, rodei o SO numa cópia do
-simulador em que a console fica ocupada por 3000 instruções depois de cada
-caractere e descarta o que chegar nesse intervalo. Os processos bloquearam
-dezenas de vezes na escrita e nenhum caractere se perdeu, nos três
-escalonadores. Esse teste também mostrou que as mensagens do próprio SO, como
-a tabela de métricas, iam direto para a porta; agora elas esperam a console
-ficar pronta.
+No simulador a saída do console está sempre pronta, então a escrita nunca
+bloqueia na prática; o caminho de bloqueio na escrita existe no código para o
+caso de o console não estar pronto. As mensagens do próprio SO, como a tabela
+de métricas, também esperam o console ficar pronto antes de escrever.
 
-Como a console é uma só, quando vários processos leem ao mesmo tempo cada
+Como o console é um só, quando vários processos leem ao mesmo tempo cada
 caractere vai para o primeiro bloqueado na ordem da tabela. Rodei com três
 leitores e nenhum caractere se perdeu, mas as letras de uma linha se espalharam
 entre eles.
@@ -97,8 +93,7 @@ empate, segue a ordem da fila. Como o `int` tem 16 bits, a conta `t_exec *
 O mcc também só tem `int` de 16 bits, e os tempos passam de centenas de
 milhares de instruções. Criei uma `struct tempo` com dois inteiros, valendo
 `alto * 10000 + baixo`, e fiz em assembly a soma, a subtração e a divisão de
-32 bits usada na média do tempo de resposta (conferi a divisão contra a
-divisão exata em 120 casos, inclusive com milhares de amostras). O instante
+32 bits usada na média do tempo de resposta. O instante
 atual vem do relógio: o SO soma o período a cada interrupção do relógio e
 acrescenta o contador. O período fica limitado a 30000 para o contador caber
 no `int`. Se o contador zera enquanto o SO está rodando, a interrupção fica
@@ -114,11 +109,8 @@ sobreviver à morte dele. Há espaço para 200 pids; depois disso o
 init morre o tempo do estado atual dos processos ainda vivos é somado antes da
 impressão. O tempo em cada estado vai de uma mudança de estado até a próxima,
 então inclui o tempo do próprio SO; com isso, para cada processo, pronto mais
-bloqueado mais executando dá exatamente o tempo de retorno. Para conferir,
-escrevi um verificador que roda o SO no núcleo do simulador e lê a memória por
-fora: a contagem de interrupções bateu exatamente, o tempo de resposta ficou a
-umas 35 instruções do medido por ele e, em todas as configurações das tabelas
-abaixo, o tempo do SO acompanhou as instruções reais sem perder nenhum tique.
+bloqueado mais executando dá exatamente o tempo de retorno, o que dá para
+conferir em qualquer tabela de métricas do SO.
 
 O custo do SO pesou mais do que eu esperava, porque o mcc não otimiza nada. A
 primeira versão gastava umas 1800 instruções por interrupção e, com período de
@@ -132,7 +124,7 @@ SO, e por isso o `compilar.sh` só aceita período a partir de 2000.
 
 Usei a mesma carga em todas as execuções. O init cria três processos que só
 calculam (`cpu_a`, `cpu_b` e `cpu_c`) e um `interativo`, que lê três linhas e
-ecoa cada uma. As linhas chegam pela console em dois cenários: no rápido, nos
+ecoa cada uma. As linhas chegam pelo console em dois cenários: no rápido, nos
 instantes 100 mil, 250 mil e 400 mil, com a CPU ocupada; no lento, em 300 mil,
 1,2 milhão e 2,1 milhões, quando os de cálculo já acabaram. Os tempos estão em
 instruções, e a porcentagem no SO foi medida pelo executor (inclui umas 80 mil
@@ -238,7 +230,7 @@ Além das execuções acima, testei com o `executa` os erros das chamadas
 processo morto, número de chamada inválido, tabela cheia), processos que fazem
 `outb`, `halt` ou dividem por zero, matar um processo bloqueado, três processos
 esperando o mesmo, um processo ainda bloqueado quando o init morre, a criação
-de mais de 200 processos, a console lenta e o SO parado sem entrada. As 27
+de mais de 200 processos e o SO parado sem entrada. As 27
 combinações de escalonador, quantum (1, 2 e 5) e período (2000, 5000 e 10000)
 terminaram com a saída completa e com os tempos de cada processo fechando, e
 os extremos aceitos (quantum 30 com período 30000) também. Por fim compilei no

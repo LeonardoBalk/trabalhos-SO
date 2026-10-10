@@ -42,7 +42,7 @@ com quantum 2 e período 5000. Abaixo de 3000 o SO passa a maior parte do tempo
 tratando o relógio.
 
 O `T2/bin/executa` roda o SO sem a interface, o que ajuda a testar:
-`-e 100000:texto` coloca texto na console quando a CPU chegar em 100000
+`-e 100000:texto` coloca texto no console quando a CPU chegar em 100000
 instruções, `-t` marca cada linha de saída com o instante e `-n` limita o
 número de instruções. O `bash T2/experimentos.sh` refaz as execuções do
 relatório e demora alguns minutos; no PowerShell, rode `chcp 65001` antes para

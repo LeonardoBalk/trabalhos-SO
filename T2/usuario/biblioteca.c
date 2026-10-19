@@ -33,16 +33,18 @@ void print_int(int v)
 
     i = 0;
     neg = 0;
+    /* trabalha com v <= 0 para -32768 nao estourar ao negar */
     if (v < 0) {
         neg = 1;
+    } else {
         v = -v;
     }
     if (v == 0) {
         buf[0] = '0';
         i = 1;
     }
-    while (v > 0) {
-        buf[i] = (v % 10) + '0';
+    while (v < 0) {
+        buf[i] = '0' - (v % 10);
         i = i + 1;
         v = v / 10;
     }

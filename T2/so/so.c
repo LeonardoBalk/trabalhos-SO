@@ -25,6 +25,7 @@
 
 #define IRQ_SISTEMA 7
 #define IRQ_CONSOLE 8
+#define IRQ_DISCO 9
 #define IRQ_RELOGIO 10
 
 #define Q_R0 0
@@ -120,13 +121,14 @@ void k_int(int v)
     i = 0;
     if (v < 0) {
         k_putc('-');
+    } else {
         v = -v;
     }
     if (v == 0) {
         k_putc('0');
     }
-    while (v > 0) {
-        buf[i] = (v % 10) + '0';
+    while (v < 0) {
+        buf[i] = '0' - (v % 10);
         i = i + 1;
         v = v / 10;
     }
@@ -555,7 +557,7 @@ void so_trata_interrupcao(int irq, int *quadro)
         so_trata_chamada();
     } else if (irq == IRQ_RELOGIO) {
         so_trata_relogio();
-    } else if (irq == IRQ_CONSOLE) {
+    } else if (irq == IRQ_CONSOLE || irq == IRQ_DISCO) {
     } else {
         so_trata_excecao(irq);
     }

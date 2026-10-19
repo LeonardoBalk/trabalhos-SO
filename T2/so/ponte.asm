@@ -1,4 +1,6 @@
 _kernel_inicio:
+        ld      r0, _so_int0
+        st      r0, (0)
         ld      r0, _so_int1
         st      r0, (8)
         ld      r0, _so_int2
@@ -24,6 +26,21 @@ _kernel_inicio:
         call    _f_so_inicia
         add     sp, 2
         jmp     _so_despacha
+
+; o comando R do simulador zera todos os registradores, entao o quadro salvo
+; vem todo em 0 (ip e sp antigos = 0); so nesse caso refaz o boot. um trap 0
+; de um processo tem sp real (nao-nulo) e recebe -1 em vez de reiniciar o SO
+_so_int0:
+        ld      r0, (sp+14)
+        cmp     r0, 0
+        jmpc    ne, _so_int0_processo
+        ld      r0, (sp+12)
+        cmp     r0, 0
+        jmpc    eq, _start
+_so_int0_processo:
+        ld      r0, -1
+        st      r0, (sp)
+        rete
 
 _so_int1:
         ld      r0, 1

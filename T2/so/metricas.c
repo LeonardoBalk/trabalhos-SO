@@ -31,8 +31,8 @@ struct metrica {
     struct tempo fim;
     struct tempo desde;
     struct tempo em_estado[N_ESTADOS];
-    int entradas[N_ESTADOS];
-    int preempcoes;
+    struct tempo entradas[N_ESTADOS];
+    struct tempo preempcoes;
     int desbloqueado;
     struct tempo desbloqueio;
     struct tempo resposta;
@@ -51,9 +51,9 @@ struct tempo ocioso_desde;
 int ocioso;
 int ultimo_contador;
 int tique_antecipado;
-int n_irq[N_IRQ];
+struct tempo n_irq[N_IRQ];
 int n_criados;
-int n_preempcoes;
+struct tempo n_preempcoes;
 
 void t_zera(struct tempo *t)
 {
@@ -93,6 +93,10 @@ void k_tempo(struct tempo *t, int largura)
         buf[n] = v % 10 + '0';
         n = n + 1;
         v = v / 10;
+    }
+
+    if (largura > 0 && largura - n < 1) {
+        k_putc(' ');
     }
     for (i = n; i < largura; i++) {
         k_putc(' ');
@@ -152,7 +156,7 @@ void met_inicia(void)
         met[i].usado = 0;
     }
     for (i = 0; i < N_IRQ; i++) {
-        n_irq[i] = 0;
+        t_zera(&n_irq[i]);
     }
     t_zera(&base_relogio);
     t_zera(&agora);
@@ -161,7 +165,7 @@ void met_inicia(void)
     ultimo_contador = 0;
     tique_antecipado = 0;
     n_criados = 0;
-    n_preempcoes = 0;
+    t_zera(&n_preempcoes);
     met_le_agora();
 }
 
@@ -176,7 +180,7 @@ void met_entrada(int irq)
         ultimo_contador = 0;
     }
     met_le_agora();
-    n_irq[irq] = n_irq[irq] + 1;
+    t_soma_int(&n_irq[irq], 1);
     if (ocioso) {
         t_acumula(&ocioso_total, &ocioso_desde);
         ocioso = 0;
@@ -214,13 +218,13 @@ int met_cria(int pid, int prog)
     m->estado = LIVRE;
     m->criacao = agora;
     m->desde = agora;
-    m->preempcoes = 0;
+    t_zera(&m->preempcoes);
     m->desbloqueado = 0;
     t_zera(&m->resposta);
     m->n_respostas = 0;
     for (e = 0; e < N_ESTADOS; e++) {
         t_zera(&m->em_estado[e]);
-        m->entradas[e] = 0;
+        t_zera(&m->entradas[e]);
     }
     return 1;
 }
@@ -246,7 +250,7 @@ void met_estado(int pid, int novo)
         m->desbloqueado = 0;
     }
     if (novo != LIVRE) {
-        m->entradas[novo] = m->entradas[novo] + 1;
+        t_soma_int(&m->entradas[novo], 1);
     }
     m->estado = novo;
     m->desde = agora;
@@ -256,10 +260,10 @@ void met_preempcao(int pid)
 {
     struct metrica *m;
 
-    n_preempcoes = n_preempcoes + 1;
+    t_soma_int(&n_preempcoes, 1);
     m = met_de(pid);
     if (m != 0) {
-        m->preempcoes = m->preempcoes + 1;
+        t_soma_int(&m->preempcoes, 1);
     }
 }
 
@@ -278,7 +282,7 @@ void met_morte(int pid)
 void met_imprime_irq(char *nome, int irq)
 {
     k_puts(nome);
-    k_int(n_irq[irq]);
+    k_tempo(&n_irq[irq], 0);
 }
 
 void met_imprime(void)
@@ -296,7 +300,7 @@ void met_imprime(void)
     k_puts("\ntempo ocioso:       ");
     k_tempo(&ocioso_total, 0);
     k_puts("\npreempcoes:         ");
-    k_int(n_preempcoes);
+    k_tempo(&n_preempcoes, 0);
     k_puts("\ninterrupcoes:      ");
     met_imprime_irq(" sistema=", 7);
     met_imprime_irq(" console=", 8);
@@ -341,12 +345,12 @@ void met_imprime(void)
             t_sub(&t, &m->fim, &m->criacao);
             k_tempo(&t, 8);
         }
-        k_int_w(m->preempcoes, 5);
-        k_int_w(m->entradas[PRONTO], 5);
+        k_tempo(&m->preempcoes, 5);
+        k_tempo(&m->entradas[PRONTO], 5);
         k_tempo(&m->em_estado[PRONTO], 8);
-        k_int_w(m->entradas[BLOQUEADO], 5);
+        k_tempo(&m->entradas[BLOQUEADO], 5);
         k_tempo(&m->em_estado[BLOQUEADO], 10);
-        k_int_w(m->entradas[EXECUTANDO], 5);
+        k_tempo(&m->entradas[EXECUTANDO], 5);
         k_tempo(&m->em_estado[EXECUTANDO], 11);
         if (m->n_respostas > 0) {
             t_div(&t, &m->resposta, m->n_respostas);

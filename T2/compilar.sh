@@ -8,11 +8,16 @@ cd "$(dirname "$0")"
 
 quantum="${QUANTUM:-2}"
 periodo="${PERIODO:-5000}"
-if ! [[ "$quantum" =~ ^[0-9]+$ ]] || [ "$quantum" -lt 1 ] || [ "$quantum" -gt 30 ]; then
+if ! [[ "$quantum" =~ ^[0-9]+$ ]] || ! [[ "$periodo" =~ ^[0-9]+$ ]]; then
+  echo "QUANTUM e PERIODO devem ser inteiros" >&2; exit 1
+fi
+quantum=$((10#$quantum))
+periodo=$((10#$periodo))
+if [ "$quantum" -lt 1 ] || [ "$quantum" -gt 30 ]; then
   echo "QUANTUM deve ser um inteiro entre 1 e 30" >&2; exit 1
 fi
-if ! [[ "$periodo" =~ ^[0-9]+$ ]] || [ "$periodo" -lt 2000 ] || [ "$periodo" -gt 30000 ]; then
-  echo "PERIODO deve ser um inteiro entre 2000 e 30000" >&2; exit 1
+if [ "$periodo" -lt 3000 ] || [ "$periodo" -gt 30000 ]; then
+  echo "PERIODO deve ser um inteiro entre 3000 e 30000" >&2; exit 1
 fi
 
 cc="${CC:-gcc}"

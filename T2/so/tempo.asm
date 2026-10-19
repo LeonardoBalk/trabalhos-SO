@@ -164,7 +164,7 @@ _tempo_antes_fim:
 
 ; área das métricas por pid (MAX_PIDS * sizeof(struct metrica) bytes); em C
 ; um vetor global desse tamanho viraria milhares de linhas .db no montador
-        .equ    TAM_AREA_METRICAS = 11600
+        .equ    TAM_AREA_METRICAS = 13600
 
 ; struct metrica *met_area(void)
 _f_met_area:
@@ -195,4 +195,4 @@ _tempo_contador_ok:
 
         .data
 _area_metricas:
-        .ds     5800                    ; TAM_AREA_METRICAS / 2 palavras
+        .ds     6800                    ; TAM_AREA_METRICAS / 2 palavras

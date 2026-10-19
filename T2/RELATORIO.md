@@ -19,7 +19,25 @@ um laço vazio em modo supervisor com as interrupções ligadas até a próxima
 interrupção.
 
 Os processos rodam com `sr` zerado, sem modo supervisor e sem E/S; um `outb`
-ou `halt` feito por um processo gera a interrupção 2 e o SO mata só ele. O que
+ou `halt` feito por um processo gera a interrupção 2 e o SO mata só ele. Um
+processo também pode executar `trap` com o número de qualquer quadro, e os
+quadros que não são chamadas de sistema precisam lidar com isso. O mais sério
+é o quadro 0, que leva ao código de boot: um `trap 0` reiniciava o SO. Agora o
+boot só é refeito quando o quadro salvo está todo zerado (o `ip` e o `sp`
+antigos em 0), que é como o comando `R` do simulador reinicia a CPU; um
+`trap 0` de um processo tem `sp` real e recebe -1, sem reiniciar. Essa
+checagem cobre o caso realista, mas não é uma garantia absoluta: um programa
+escrito à mão que zere o próprio `sp` e coloque o `trap 0` no endereço 0xFFFE
+(onde o `ip` seguinte volta a 0, pelo retorno de 16 bits) ainda cairia no boot.
+Os quadros 8, 9 e 10 (console, disco e relógio) não têm defesa parecida: um
+`trap` para eles entra no SO e é tratado como se a interrupção tivesse
+acontecido. Isso não reinicia nem derruba o sistema, mas conta uma interrupção
+a mais, e um `trap 10` ainda avança o relógio do SO: 1000 chamadas `trap 10`
+fizeram o tempo total medido saltar para cerca de 6,4 milhões, com a execução
+real em 1,48 milhão. Nada disso acontece com os programas entregues, que só
+usam `trap 7`; fechar esses casos de vez exigiria o hardware distinguir um
+`trap` de uma interrupção, o que o Mancha não oferece, o mesmo limite da
+proteção de memória, logo abaixo. O que
 não existe é proteção de memória: os limites de segmento ficam zerados, então
 um processo pode escrever em qualquer endereço, inclusive no vetor de
 interrupções, e com isso desviar uma interrupção para o próprio código e
@@ -97,20 +115,33 @@ milhares de instruções. Criei uma `struct tempo` com dois inteiros, valendo
 atual vem do relógio: o SO soma o período a cada interrupção do relógio e
 acrescenta o contador. O período fica limitado a 30000 para o contador caber
 no `int`. Se o contador zera enquanto o SO está rodando, a interrupção fica
-pendente e o tempo pareceria voltar; o SO detecta isso e compensa. Se uma única
-passagem pelo SO demorasse mais que um período, um tique se perderia, porque o
-controlador guarda só uma interrupção pendente. A passagem mais longa hoje é a
-morte de um processo, com umas 2700 instruções, então isso não acontece com
-período de 3000 ou mais.
+pendente e o tempo pareceria voltar; o SO detecta isso e compensa. Há um limite
+que o SO não tem como contornar: se uma única passagem pelo SO demora mais que
+um período, o relógio zera duas vezes mas o controlador guarda só uma
+interrupção pendente, e um tique se perde, atrasando o tempo medido. Nas cargas
+do relatório a passagem mais longa fica abaixo de 3000 instruções, mas ela
+cresce com o trabalho feito numa só passagem: quando um processo morre e vários
+estavam esperando por ele, o SO acorda todos de uma vez, e com muitos
+esperadores essa passagem pode passar de 3000. Ou seja, o período de 3000 é o
+mínimo aceito, mas a medida de tempo só é exata enquanto nenhuma passagem pelo
+SO ultrapassar o período; para medições precisas com cargas pesadas, convém usar
+um período maior.
 
 As métricas de cada processo ficam guardadas pelo pid, porque precisam
 sobreviver à morte dele. Há espaço para 200 pids; depois disso o
-`SO_CRIA_PROC` devolve -1. As interrupções são contadas por tipo, e quando o
-init morre o tempo do estado atual dos processos ainda vivos é somado antes da
-impressão. O tempo em cada estado vai de uma mudança de estado até a próxima,
-então inclui o tempo do próprio SO; com isso, para cada processo, pronto mais
-bloqueado mais executando dá exatamente o tempo de retorno, o que dá para
-conferir em qualquer tabela de métricas do SO.
+`SO_CRIA_PROC` devolve -1. Todos os contadores que crescem com o tempo, tanto
+os globais (interrupções de cada tipo e preempções) quanto os por processo
+(preempções e número de vezes em cada estado), usam a mesma `struct tempo` de
+32 bits, então não estouram numa execução longa; testei um processo preemptado
+mais de cem mil vezes e o contador acompanhou. O único contador que continua em
+16 bits é o número de amostras usado para a média do tempo de resposta, que só
+passaria de 32767 se um mesmo processo desbloqueasse essa quantidade de vezes.
+As interrupções são contadas por tipo, e
+quando o init morre o tempo do estado atual dos processos ainda vivos é somado
+antes da impressão. O tempo em cada estado vai de uma mudança de estado até a
+próxima, então inclui o tempo do próprio SO; com isso, para cada processo,
+pronto mais bloqueado mais executando dá exatamente o tempo de retorno, o que
+dá para conferir em qualquer tabela de métricas do SO.
 
 O custo do SO pesou mais do que eu esperava, porque o mcc não otimiza nada. A
 primeira versão gastava umas 1800 instruções por interrupção e, com período de
@@ -118,7 +149,8 @@ primeira versão gastava umas 1800 instruções por interrupção e, com períod
 e as contas de tempo para assembly e evitar percorrer a tabela à toa baixou
 para 1100 a 1700 instruções, conforme o escalonador. Mesmo assim, num teste
 com período de 1000 o sistema não terminou, com quase todas as instruções no
-SO, e por isso o `compilar.sh` só aceita período a partir de 2000.
+SO; com 2000 ele termina, mas o relógio já perde tiques, e por isso o
+`compilar.sh` só aceita período a partir de 3000.
 
 ## Resultados
 
@@ -137,27 +169,27 @@ rápida. "Retorno CPU" é a média dos três processos de cálculo.
 
 | escalonador | quantum | tempo total | preempções | no SO | retorno CPU | retorno interativo | resposta interativo |
 |---|---|---|---|---|---|---|---|
-| simples | - | 677162 | 0 | 38,3% | 403227 | 642881 | - |
-| circular | 1 | 852174 | 170 | 49,7% | 790445 | 447789 | 11409 |
-| circular | 2 | 756458 | 73 | 44,1% | 713983 | 452379 | 24743 |
-| circular | 4 | 716758 | 32 | 41,4% | 675707 | 456211 | 56411 |
-| prioridade | 1 | 918194 | 183 | 52,9% | 865760 | 398174 | 1491 |
-| prioridade | 2 | 783226 | 75 | 45,8% | 736978 | 403706 | 4743 |
-| prioridade | 4 | 731034 | 32 | 42,4% | 679763 | 402390 | 11437 |
+| simples | - | 682000 | 0 | 38,7% | 405115 | 646812 | - |
+| circular | 1 | 873878 | 174 | 50,8% | 810056 | 448507 | 11702 |
+| circular | 2 | 769089 | 74 | 45,0% | 721330 | 452087 | 25036 |
+| circular | 4 | 721982 | 31 | 41,9% | 672449 | 441757 | 51775 |
+| prioridade | 1 | 942247 | 188 | 54,0% | 888619 | 398501 | 1702 |
+| prioridade | 2 | 793431 | 76 | 46,4% | 743033 | 403558 | 5103 |
+| prioridade | 4 | 738131 | 32 | 42,9% | 684065 | 402182 | 11703 |
 
 O simples termina tudo antes e gasta menos com o SO, porque não troca de
 processo à toa, mas o interativo só roda depois que os três de cálculo acabam
-e leva 643 mil instruções para terminar, contra uns 450 mil no circular. A
+e leva 647 mil instruções para terminar, contra uns 450 mil no circular. A
 resposta dele aparece como "-" porque, quando ele roda, as linhas já chegaram
 e ele nunca bloqueia.
 
 No circular, quantum menor é mais preempção e mais tempo no SO: com quantum 1
 quase metade das instruções vai para o SO e o retorno dos processos de cálculo
-sobe para 790 mil, mas o interativo responde em 11 mil instruções. Com quantum
-4 a resposta vai para 56 mil, porque ao acordar ele fica atrás de três
+sobe para 810 mil, mas o interativo responde em 11 mil instruções. Com quantum
+4 a resposta vai para 52 mil, porque ao acordar ele fica atrás de três
 processos que podem usar até 20 mil instruções cada.
 
-Na prioridade a resposta do interativo foi de 5 a 8 vezes menor que no
+Na prioridade a resposta do interativo foi de 4 a 7 vezes menor que no
 circular. Quando ele desbloqueia, o SO não interrompe quem está rodando, mas
 no fim dessa fatia ele passa na frente dos outros, porque quase nunca gasta o
 quantum inteiro e o valor de `prio` dele fica baixo. No circular ele vai para o
@@ -171,12 +203,12 @@ Depois variei o período do relógio, com quantum 2 e entrada rápida.
 
 | escalonador | período | tempo total | int. relógio | no SO | retorno CPU | resposta interativo |
 |---|---|---|---|---|---|---|
-| circular | 3000 | 937189 | 312 | 53,8% | 875160 | 16697 |
-| circular | 5000 | 756458 | 151 | 44,1% | 713983 | 24743 |
-| circular | 10000 | 661914 | 66 | 37,3% | 616290 | 56409 |
-| prioridade | 3000 | 996799 | 332 | 56,2% | 944429 | 3217 |
-| prioridade | 5000 | 783226 | 156 | 45,8% | 736978 | 4743 |
-| prioridade | 10000 | 673100 | 67 | 38,2% | 637051 | 16613 |
+| circular | 3000 | 959669 | 319 | 54,8% | 903991 | 12000 |
+| circular | 5000 | 769089 | 153 | 45,0% | 721330 | 25036 |
+| circular | 10000 | 666830 | 66 | 37,7% | 624816 | 56998 |
+| prioridade | 3000 | 1025645 | 341 | 57,4% | 962003 | 1000 |
+| prioridade | 5000 | 793431 | 158 | 46,4% | 743033 | 5103 |
+| prioridade | 10000 | 678339 | 67 | 38,6% | 640085 | 16792 |
 
 Como o quantum é medido em tiques, o período muda ao mesmo tempo o tamanho da
 fatia e a quantidade de interrupções. Com 3000 o SO fica com mais da metade do
@@ -189,9 +221,9 @@ Por fim, a entrada lenta, com quantum 2 e período 5000.
 
 | escalonador | tempo total | ocioso | preempções | retorno CPU | retorno interativo | resposta interativo |
 |---|---|---|---|---|---|---|
-| simples | 2134975 | 1456603 | 0 | 401991 | 2100695 | 0 |
-| circular | 2139466 | 1375847 | 74 | 682051 | 2103096 | 8803 |
-| prioridade | 2139756 | 1353085 | 76 | 704209 | 2103191 | 2137 |
+| simples | 2136085 | 1452851 | 0 | 404090 | 2100238 | 0 |
+| circular | 2141741 | 1365514 | 76 | 692577 | 2102770 | 8901 |
+| prioridade | 2142108 | 1340540 | 78 | 719382 | 2102874 | 2234 |
 
 Aqui o sistema fica uns dois terços do tempo ocioso, com o interativo
 bloqueado esperando a próxima linha, e o tempo total quase não muda entre os
@@ -204,22 +236,22 @@ rápida:
 
 ```
 processos criados:  5
-tempo total:        783226
+tempo total:        793431
 tempo ocioso:       0
-preempcoes:         75
-interrupcoes:       sistema=111 console=3 disco=0 relogio=156
+preempcoes:         76
+interrupcoes:       sistema=111 console=3 disco=0 relogio=158
 excecoes:           segmento=0 privilegiada=0 div_zero=0 ilegal=0 pagina=0
 
 pid programa   retorno prmp  npr  pronto  nbl bloqueado  nex executando resposta
-  1 init        783226    4    7   30777    2    704639    7      47810        0
-  2 cpu_a       742026   23   24  514047    0         0   24     227979        -
-  3 cpu_b       722679   22   23  496244    0         0   23     226435        -
-  4 cpu_c       746230   23   24  515525    0         0   24     230705        -
-  5 interativo  403706    3    7   45448    3    307961    7      50297     4743
+  1 init        793431    4    6   30288    1    715730    6      47413        0
+  2 cpu_a       757607   24   25  524558    0         0   25     233049        -
+  3 cpu_b       724866   22   23  496181    0         0   23     228685        -
+  4 cpu_c       746627   23   24  513820    0         0   24     232807        -
+  5 interativo  403558    3    7   46073    3    306008    7      51477     5103
 ```
 
 No circular, com a mesma configuração, o interativo passa 194 mil instruções
-pronto esperando na fila; na prioridade, 45 mil, com tempo executando parecido
+pronto esperando na fila; na prioridade, 46 mil, com tempo executando parecido
 nos dois. As 111 chamadas de sistema são quase todas escritas, já que a
 biblioteca escreve um caractere por chamada.
 
@@ -231,7 +263,7 @@ processo morto, número de chamada inválido, tabela cheia), processos que fazem
 `outb`, `halt` ou dividem por zero, matar um processo bloqueado, três processos
 esperando o mesmo, um processo ainda bloqueado quando o init morre, a criação
 de mais de 200 processos e o SO parado sem entrada. As 27
-combinações de escalonador, quantum (1, 2 e 5) e período (2000, 5000 e 10000)
+combinações de escalonador, quantum (1, 2 e 5) e período (3000, 5000 e 10000)
 terminaram com a saída completa e com os tempos de cada processo fechando, e
 os extremos aceitos (quantum 30 com período 30000) também. Por fim compilei no
 Linux e usei o simulador com interface, digitando as linhas pelo comando `E`.

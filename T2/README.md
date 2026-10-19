@@ -37,9 +37,8 @@ Linux, por exemplo, `ESCALONADOR=prioridade QUANTUM=2 PERIODO=5000 bash
 T2/compilar.sh`. No PowerShell, `$env:ESCALONADOR = "prioridade"` antes de
 chamar o `compilar.sh` (e `Remove-Item Env:ESCALONADOR` para voltar ao
 padrão). O escalonador pode ser `simples`, `circular` ou `prioridade`, o
-quantum vai de 1 a 30 e o período de 2000 a 30000; sem nada, fica circular
-com quantum 2 e período 5000. Abaixo de 3000 o SO passa a maior parte do tempo
-tratando o relógio.
+quantum vai de 1 a 30 e o período de 3000 a 30000; sem nada, fica circular
+com quantum 2 e período 5000.
 
 O `T2/bin/executa` roda o SO sem a interface, o que ajuda a testar:
 `-e 100000:texto` coloca texto no console quando a CPU chegar em 100000

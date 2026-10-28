@@ -45,12 +45,15 @@ int main(int argc, char *argv[])
   entrada_t entradas[MAX_ENTRADAS];
   int n_entradas = 0;
   const char *arquivo = NULL;
+  const char *disco = NULL;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-t") == 0) {
       carimbo = true;
     } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
       max = atol(argv[++i]);
+    } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+      disco = argv[++i];
     } else if (strcmp(argv[i], "-e") == 0 && i + 1 < argc && n_entradas < MAX_ENTRADAS) {
       char *arg = argv[++i];
       char *sep = strchr(arg, ':');
@@ -66,7 +69,7 @@ int main(int argc, char *argv[])
     }
   }
   if (arquivo == NULL) {
-    fprintf(stderr, "uso: %s [-t] [-n max] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
+    fprintf(stderr, "uso: %s [-t] [-n max] [-d disco.img] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
     return 2;
   }
 
@@ -75,6 +78,10 @@ int main(int argc, char *argv[])
   cpu_t *cpu = cpu_cria(m, d);
   simbolo_t *simbolos = NULL;
   char erro[256];
+  if (disco != NULL && !disp_monta_disco(d, 0, disco, erro, sizeof erro)) {
+    fprintf(stderr, "erro ao montar '%s': %s\n", disco, erro);
+    return 1;
+  }
   if (!obj_carrega(arquivo, m, &simbolos, erro, sizeof erro)) {
     fprintf(stderr, "erro ao carregar '%s': %s\n", arquivo, erro);
     return 1;

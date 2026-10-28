@@ -1,0 +1,148 @@
+_kernel_inicio:
+        ld      r0, _so_int0
+        st      r0, (0)
+        ld      r0, _so_int1
+        st      r0, (8)
+        ld      r0, _so_int2
+        st      r0, (16)
+        ld      r0, _so_int3
+        st      r0, (24)
+        ld      r0, _so_int4
+        st      r0, (32)
+        ld      r0, _so_int5
+        st      r0, (40)
+        ld      r0, _so_int7
+        st      r0, (56)
+        ld      r0, _so_int8
+        st      r0, (64)
+        ld      r0, _so_int9
+        st      r0, (72)
+        ld      r0, _so_int10
+        st      r0, (80)
+
+        ld      r0, pilha_sistema
+        add     r0, -32
+        push    r0
+        call    _f_so_inicia
+        add     sp, 2
+        jmp     _so_despacha
+
+; o comando R do simulador zera todos os registradores, entao o quadro salvo
+; vem todo em 0 (ip e sp antigos = 0); so nesse caso refaz o boot. um trap 0
+; de um processo tem sp real (nao-nulo) e recebe -1 em vez de reiniciar o SO
+_so_int0:
+        ld      r0, (sp+14)
+        cmp     r0, 0
+        jmpc    ne, _so_int0_processo
+        ld      r0, (sp+12)
+        cmp     r0, 0
+        jmpc    eq, _start
+_so_int0_processo:
+        ld      r0, -1
+        st      r0, (sp)
+        rete
+
+_so_int1:
+        ld      r0, 1
+        jmp     _so_entrada
+_so_int2:
+        ld      r0, 2
+        jmp     _so_entrada
+_so_int3:
+        ld      r0, 3
+        jmp     _so_entrada
+_so_int4:
+        ld      r0, 4
+        jmp     _so_entrada
+_so_int5:
+        ld      r0, 5
+        jmp     _so_entrada
+_so_int7:
+        ld      r0, 7
+        jmp     _so_entrada
+_so_int8:
+        ld      r0, 8
+        jmp     _so_entrada
+_so_int9:
+        ld      r0, 9
+        jmp     _so_entrada
+_so_int10:
+        ld      r0, 10
+        jmp     _so_entrada
+
+; quadro do interrompido em pilha_sistema-32; o SO roda na pilha_nucleo
+_so_entrada:
+        ld      r1, sp
+        ld      sp, pilha_nucleo
+        push    r1
+        push    r0
+        call    _f_so_trata_interrupcao
+        add     sp, 4
+_so_despacha:
+        ld      sp, pilha_sistema
+        add     sp, -32
+        rete
+
+_f_so_ocioso:
+        jmp     _f_so_ocioso
+
+; void k_out(int porta, int valor)
+_f_k_out:
+        push    bp
+        ld      bp, sp
+        ld      r1, (bp+4)
+        ld      r0, (bp+6)
+        outb    r0, (r1)
+        ld      sp, bp
+        pop     bp
+        ret
+
+; int k_in(int porta)
+_f_k_in:
+        push    bp
+        ld      bp, sp
+        ld      r1, (bp+4)
+        ld      r0, 0
+        inb     r0, (r1)
+        ld      sp, bp
+        pop     bp
+        ret
+
+; void copia_quadro(int *de, int *para)
+_f_copia_quadro:
+        push    bp
+        ld      bp, sp
+        ld      r0, (bp+4)
+        ld      r1, (bp+6)
+        call    bios_copia_quadro
+        ld      sp, bp
+        pop     bp
+        ret
+
+; int str_igual(char *a, char *b)
+_f_str_igual:
+        push    bp
+        ld      bp, sp
+        ld      r1, (bp+4)
+        ld      r2, (bp+6)
+_str_laco:
+        ld      r3, 0
+        ldb     r3, (r1+)
+        ld      r4, 0
+        ldb     r4, (r2+)
+        cmp     r3, r4
+        jmpc    ne, _str_diferente
+        cmp     r3, 0
+        jmpc    ne, _str_laco
+        ld      r0, 1
+        jmp     _str_fim
+_str_diferente:
+        ld      r0, 0
+_str_fim:
+        ld      sp, bp
+        pop     bp
+        ret
+
+; void k_para(void)
+_f_k_para:
+        halt

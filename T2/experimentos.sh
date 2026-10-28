@@ -17,7 +17,7 @@ roda() {
   ESCALONADOR=$esc QUANTUM=$q PERIODO=$p "$BASH" compilar.sh >/dev/null 2>&1
   "./bin/executa$exe" -n 20000000 "${entradas[@]}" bin/so.mob > bin/saida.txt 2> bin/estat.txt
   awk -v esc="$esc" -v q="$q" -v p="$p" '
-    FNR == NR { if (match($0, /\(([0-9.]+)%\)/, m)) so = m[1]; next }
+    FNR == NR { if (match($0, /[0-9.]+%/)) so = substr($0, RSTART, RLENGTH - 1); next }
     /^tempo total:/ { total = $3 }
     /^tempo ocioso:/ { ocioso = $3 }
     /^preempcoes:/ { preemp = $2 }

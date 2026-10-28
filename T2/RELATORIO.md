@@ -76,9 +76,11 @@ estiver pronto, senão entra o primeiro pronto da tabela.
 ninguém bloqueado esperando por ele; se não, o processo fica bloqueado com o
 motivo anotado, e a cada interrupção o SO confere o estado do console, completa
 as operações pendentes, desbloqueia quem foi atendido e coloca o valor de
-retorno no `r0` do quadro salvo. A condição de ninguém estar esperando evita
-que um processo que chegou depois passe na frente de quem já estava bloqueado.
-`SO_ESPERA_PROC` devolve -1 para um pid que não existe, o que inclui um
+retorno no `r0` do quadro salvo. Um processo que pede leitura não lê direto
+quando já há alguém bloqueado esperando: ele também bloqueia e entra na mesma
+disputa, que segue a ordem da tabela de processos, não a ordem em que cada um
+bloqueou (como descrito mais abaixo). `SO_ESPERA_PROC` devolve -1 para um pid
+que não existe, o que inclui um
 processo que já morreu, e para o próprio processo; nos outros casos bloqueia,
 e quando um processo morre o SO acorda todos que esperavam por ele.
 
@@ -100,6 +102,12 @@ quando um processo é escolhido e diminui a cada tique do relógio. O enunciado
 manda reiniciar o quantum só quando entra um processo diferente do
 interrompido; eu reinicio a cada escolha, porque seguindo à risca um processo
 sozinho na fila ficaria com o quantum zerado e seria interrompido a cada tique.
+Uma consequência disso: quando o quantum acaba e o SO reescolhe o mesmo
+processo, ele conta uma preempção (mais uma entrada em pronto e em executando),
+embora ele não tenha de fato parado de rodar. No circular isso só acontece se
+ele estiver sozinho pronto, porque com outros prontos entra o próximo da fila;
+na prioridade pode acontecer mesmo com outros prontos, se ele continuar com o
+menor valor de prio e for reescolhido.
 
 O mcc não tem ponto flutuante, então a prioridade é guardada vezes 1000. Um
 processo novo começa com 500 e, ao perder o processador, recebe
@@ -119,8 +127,11 @@ pendente e o tempo pareceria voltar; o SO detecta isso e compensa. Há um limite
 que o SO não tem como contornar: se uma única passagem pelo SO demora mais que
 um período, o relógio zera duas vezes mas o controlador guarda só uma
 interrupção pendente, e um tique se perde, atrasando o tempo medido. Nas cargas
-do relatório a passagem mais longa fica abaixo de 3000 instruções, mas ela
-cresce com o trabalho feito numa só passagem: quando um processo morre e vários
+do relatório a passagem mais longa fica logo abaixo de 3000 instruções (a maior
+que medi foi de 2982, com prioridade, quantum 1 e período 3000; só o boot, com
+cerca de 8500, é maior, mas acontece antes de o relógio começar a contar). A
+folga é pequena, e ela cresce com o trabalho feito numa só passagem: quando um
+processo morre e vários
 estavam esperando por ele, o SO acorda todos de uma vez, e com muitos
 esperadores essa passagem pode passar de 3000. Ou seja, o período de 3000 é o
 mínimo aceito, mas a medida de tempo só é exata enquanto nenhuma passagem pelo
@@ -141,7 +152,11 @@ quando o init morre o tempo do estado atual dos processos ainda vivos é somado
 antes da impressão. O tempo em cada estado vai de uma mudança de estado até a
 próxima, então inclui o tempo do próprio SO; com isso, para cada processo,
 pronto mais bloqueado mais executando dá exatamente o tempo de retorno, o que
-dá para conferir em qualquer tabela de métricas do SO.
+dá para conferir em qualquer tabela de métricas do SO. O tempo ocioso segue a
+mesma ideia: conta todo o intervalo em que nenhum processo está pronto, desde a
+passagem pelo SO em que o último processo bloqueou ou morreu, incluindo o
+próprio SO nesse intervalo, então é maior do que só as instruções do laço
+ocioso em si.
 
 O custo do SO pesou mais do que eu esperava, porque o mcc não otimiza nada. A
 primeira versão gastava umas 1800 instruções por interrupção e, com período de
@@ -159,23 +174,23 @@ calculam (`cpu_a`, `cpu_b` e `cpu_c`) e um `interativo`, que lê três linhas e
 ecoa cada uma. As linhas chegam pelo console em dois cenários: no rápido, nos
 instantes 100 mil, 250 mil e 400 mil, com a CPU ocupada; no lento, em 300 mil,
 1,2 milhão e 2,1 milhões, quando os de cálculo já acabaram. Os tempos estão em
-instruções, e a porcentagem no SO foi medida pelo executor (inclui umas 80 mil
+instruções, e a porcentagem no SO foi medida pelo executor (inclui umas 105 mil
 instruções gastas imprimindo as métricas no final). Tudo dá para refazer com
-`bash T2/experimentos.sh`; a simulação é determinística e o Linux deu os mesmos
-números que o Windows.
+`bash T2/experimentos.sh`; a simulação é determinística e todos os números,
+inclusive a coluna "no SO", saem iguais no Windows e no Linux.
 
 Primeiro variei o escalonador e o quantum, com período de 5000 e entrada
 rápida. "Retorno CPU" é a média dos três processos de cálculo.
 
 | escalonador | quantum | tempo total | preempções | no SO | retorno CPU | retorno interativo | resposta interativo |
 |---|---|---|---|---|---|---|---|
-| simples | - | 682000 | 0 | 38,7% | 405115 | 646812 | - |
-| circular | 1 | 873878 | 174 | 50,8% | 810056 | 448507 | 11702 |
-| circular | 2 | 769089 | 74 | 45,0% | 721330 | 452087 | 25036 |
-| circular | 4 | 721982 | 31 | 41,9% | 672449 | 441757 | 51775 |
-| prioridade | 1 | 942247 | 188 | 54,0% | 888619 | 398501 | 1702 |
-| prioridade | 2 | 793431 | 76 | 46,4% | 743033 | 403558 | 5103 |
-| prioridade | 4 | 738131 | 32 | 42,9% | 684065 | 402182 | 11703 |
+| simples | - | 682000 | 0 | 38,8% | 405115 | 646812 | - |
+| circular | 1 | 873878 | 174 | 50,9% | 810056 | 448507 | 11702 |
+| circular | 2 | 769089 | 74 | 45,1% | 721330 | 452087 | 25036 |
+| circular | 4 | 721982 | 31 | 42,0% | 672449 | 441757 | 51775 |
+| prioridade | 1 | 942247 | 188 | 54,1% | 888619 | 398501 | 1702 |
+| prioridade | 2 | 793431 | 76 | 46,5% | 743033 | 403558 | 5103 |
+| prioridade | 4 | 738131 | 32 | 43,0% | 684065 | 402182 | 11703 |
 
 O simples termina tudo antes e gasta menos com o SO, porque não troca de
 processo à toa, mas o interativo só roda depois que os três de cálculo acabam
@@ -204,11 +219,11 @@ Depois variei o período do relógio, com quantum 2 e entrada rápida.
 | escalonador | período | tempo total | int. relógio | no SO | retorno CPU | resposta interativo |
 |---|---|---|---|---|---|---|
 | circular | 3000 | 959669 | 319 | 54,8% | 903991 | 12000 |
-| circular | 5000 | 769089 | 153 | 45,0% | 721330 | 25036 |
-| circular | 10000 | 666830 | 66 | 37,7% | 624816 | 56998 |
+| circular | 5000 | 769089 | 153 | 45,1% | 721330 | 25036 |
+| circular | 10000 | 666830 | 66 | 37,9% | 624816 | 56998 |
 | prioridade | 3000 | 1025645 | 341 | 57,4% | 962003 | 1000 |
-| prioridade | 5000 | 793431 | 158 | 46,4% | 743033 | 5103 |
-| prioridade | 10000 | 678339 | 67 | 38,6% | 640085 | 16792 |
+| prioridade | 5000 | 793431 | 158 | 46,5% | 743033 | 5103 |
+| prioridade | 10000 | 678339 | 67 | 38,7% | 640085 | 16792 |
 
 Como o quantum é medido em tiques, o período muda ao mesmo tempo o tamanho da
 fatia e a quantidade de interrupções. Com 3000 o SO fica com mais da metade do

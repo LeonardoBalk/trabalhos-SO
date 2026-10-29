@@ -63,6 +63,7 @@ void met_ocioso(void);
 int met_cria(int pid, int prog);
 void met_estado(int pid, int novo);
 void met_preempcao(int pid);
+void met_falta(int pid);
 void met_morte(int pid);
 void met_imprime(void);
 
@@ -373,17 +374,19 @@ int so_cria_processo(char *nome)
     pt = (int *) (qpt * TAM_PAGINA);
     pt_zera(pt);
 
+    // com carga por demanda o código fica ausente e a primeira busca de
+    // instrução já provoca a falta que o carrega
     n_cod = progs_disco[prog].n_pag_codigo;
     setor = progs_disco[prog].setor;
-    for (pg = 0; pg < n_cod; pg++) {
-        if (!mapeia(pt, pg, PG_CODIGO, setor + pg)) {
-            pt_libera(pt);
-            libera_quadro(qpt);
-            return -1;
+    if (!CARGA_DEMANDA) {
+        for (pg = 0; pg < n_cod; pg++) {
+            if (!mapeia(pt, pg, PG_CODIGO, setor + pg)) {
+                pt_libera(pt);
+                libera_quadro(qpt);
+                return -1;
+            }
+            pt[METADE_DADOS + pg] = pt[pg];
         }
-        // mesma página também como dado só-leitura: o processo lê o próprio
-        // código, mas escrever nele dá interrupção 1 em vez de 5
-        pt[METADE_DADOS + pg] = pt[pg];
     }
     for (pg = 0; pg < N_PAG_DADOS; pg++) {
         if (!mapeia(pt, METADE_DADOS + PAGINA_DADOS + pg, PG_DADOS,
@@ -647,20 +650,65 @@ void k_hex(int v)
     }
 }
 
-// na parte I tudo o que o processo usa legitimamente foi mapeado na
-// criação, então qualquer falta é acesso indevido
+void so_mata_por_falta(char *motivo)
+{
+    k_puts("\nSO: processo ");
+    k_int(tabela[atual].pid);
+    k_puts(" morto, ");
+    k_puts(motivo);
+    k_puts(", ip=");
+    k_hex(tabela[atual].quadro[Q_IP]);
+    k_putc(10);
+    so_mata_processo(atual);
+}
+
+// o Mancha não guarda o endereço que faltou. numa falta de busca de
+// instrução o ip salvo é esse endereço; numa falta de dados o ip já
+// aponta para a instrução seguinte, cuja página está presente. é assim
+// que as duas se distinguem
 void so_trata_falta(void)
 {
+    struct processo *p;
+    int pg;
+    int q;
+    int *pt;
+
     if (atual < 0) {
         k_puts("\nSO: falta de pagina no nucleo\n");
         k_para();
     }
-    k_puts("\nSO: processo ");
-    k_int(tabela[atual].pid);
-    k_puts(" morto por falta de pagina, ip=");
-    k_hex(tabela[atual].quadro[Q_IP]);
-    k_putc(10);
-    so_mata_processo(atual);
+    p = &tabela[atual];
+    pt = (int *) p->quadro[Q_S4];
+    pg = (p->quadro[Q_IP] >> 9) & 127;
+
+    if (pg >= PAGINA_DADOS && pg < PAGINA_DADOS + N_PAG_DADOS) {
+        so_mata_por_falta("executando na area de dados");
+        return;
+    }
+    if (pg >= progs_disco[p->prog].n_pag_codigo) {
+        so_mata_por_falta("busca fora do programa");
+        return;
+    }
+    if (pt_tipo(pt[pg]) != PG_AUSENTE) {
+        so_mata_por_falta("acesso a dado fora do mapa");
+        return;
+    }
+
+    q = aloca_quadro();
+    if (q < 0) {
+        so_mata_por_falta("sem quadro livre");
+        return;
+    }
+    if (le_pagina(progs_disco[p->prog].setor + pg, q) != 0) {
+        libera_quadro(q);
+        so_mata_por_falta("erro de disco");
+        return;
+    }
+    pt[pg] = pt_monta(PG_CODIGO, q);
+    // mesma página também como dado só-leitura: o processo lê o próprio
+    // código, mas escrever nele dá interrupção 1 em vez de 5
+    pt[METADE_DADOS + pg] = pt[pg];
+    met_falta(p->pid);
 }
 
 void so_trata_excecao(int irq)

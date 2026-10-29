@@ -48,6 +48,7 @@ comum=("$src/instrucao.c" "$src/objeto.c" "$src/memoria.c")
   "$mcc_src/pre.c" "$mcc_src/lexer.c" "$mcc_src/tipos.c" \
   "$mcc_src/simbolos.c" "$mcc_src/parser.c" "$mcc_src/main.c"
 "$cc" "${flags[@]}" -o "bin/mob2bin$exe" mob2bin.c
+"$cc" "${flags[@]}" -o "bin/confere_paginas$exe" confere_paginas.c "$src/instrucao.c"
 
 ex=bios_mancha/exemplos/multitarefa_c
 "./bin/mcc$exe" "$ex/kernel.c" -o bin/multitarefa_c.asm
@@ -70,7 +71,7 @@ n_pag_dados=3
 tam_setor=512
 
 programas=(init escritor leitor cpu_a cpu_b cpu_c interativo
-           testa escreve_codigo fora_mapa estoura)
+           testa escreve_codigo fora_mapa estoura conta testa_io)
 
 # programa que o SO cria na inicializacao
 prog_init="${PROG_INIT:-init}"
@@ -83,26 +84,48 @@ if [ "$achou" = 0 ]; then
 fi
 printf '#define PROG_INIT "%s"\n' "$prog_init" >> bin/config.h
 
+case "${CARGA:-demanda}" in
+  demanda)  printf '#define CARGA_DEMANDA 1\n' >> bin/config.h ;;
+  completa) printf '#define CARGA_DEMANDA 0\n' >> bin/config.h ;;
+  *) echo "CARGA deve ser demanda ou completa" >&2; exit 1 ;;
+esac
+
 "./bin/mcc$exe" -Iusuario -Ibin usuario/biblioteca.c -o bin/u_biblioteca.asm
 "./bin/mcc$exe" -Iusuario -Ibin usuario/carga.c -o bin/u_carga.asm
 
+# uma instrução de 2 palavras que atravessa fronteira de página quebra a
+# carga por demanda: na falta, o ip salvo aponta para o imediato e o Mancha
+# não deixa o SO descobrir onde a instrução começou. o enchimento desloca o
+# código até que nenhuma instrução caia em cima de uma fronteira
 monta_programa() {
   local nome=$1
   local extra=()
+  local pad=0
   case "$nome" in cpu_a|cpu_b|cpu_c) extra=(bin/u_carga.asm) ;; esac
   "./bin/mcc$exe" -Iusuario -Ibin "usuario/$nome.c" -o "bin/u_$nome.asm" >/dev/null
-  : > "bin/$nome.text.asm"
-  : > "bin/$nome.data.asm"
-  awk -v texto="bin/$nome.text.asm" -v dados="bin/$nome.data.asm" -f liga.awk \
-    usuario/inicio.asm "bin/u_$nome.asm" "${extra[@]}" bin/u_biblioteca.asm usuario/sistema.asm
-  {
-    echo "        .text"
-    cat "bin/$nome.text.asm"
-    echo "        .org $((pagina_dados * tam_setor))"
-    echo "        .data"
-    cat "bin/$nome.data.asm"
-  } > "bin/$nome.lig.asm"
-  "./bin/montador$exe" "bin/$nome.lig.asm" -o "bin/$nome.mob" >/dev/null
+  while :; do
+    printf '        .text\n        .ds %s\n' "$pad" > "bin/$nome.pad.asm"
+    : > "bin/$nome.text.asm"
+    : > "bin/$nome.data.asm"
+    awk -v texto="bin/$nome.text.asm" -v dados="bin/$nome.data.asm" -f liga.awk \
+      usuario/inicio.asm "bin/$nome.pad.asm" "bin/u_$nome.asm" "${extra[@]}" \
+      bin/u_biblioteca.asm usuario/sistema.asm
+    {
+      echo "        .text"
+      cat "bin/$nome.text.asm"
+      echo "        .org $((pagina_dados * tam_setor))"
+      echo "        .data"
+      cat "bin/$nome.data.asm"
+    } > "bin/$nome.lig.asm"
+    "./bin/montador$exe" "bin/$nome.lig.asm" -o "bin/$nome.mob" >/dev/null
+    if "./bin/confere_paginas$exe" "bin/$nome.mob" >/dev/null; then
+      break
+    fi
+    pad=$((pad + 1))
+    if [ "$pad" -gt 64 ]; then
+      echo "nao consegui alinhar as paginas de $nome" >&2; exit 1
+    fi
+  done
   "./bin/mob2bin$exe" "bin/$nome.mob" -o "bin/$nome.bin" \
     -d "$pagina_dados" -n "$n_pag_dados"
 }

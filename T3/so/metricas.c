@@ -33,6 +33,7 @@ struct metrica {
     struct tempo em_estado[N_ESTADOS];
     struct tempo entradas[N_ESTADOS];
     struct tempo preempcoes;
+    struct tempo faltas;
     int desbloqueado;
     struct tempo desbloqueio;
     struct tempo resposta;
@@ -54,6 +55,7 @@ int tique_antecipado;
 struct tempo n_irq[N_IRQ];
 int n_criados;
 struct tempo n_preempcoes;
+struct tempo n_faltas;
 
 void t_zera(struct tempo *t)
 {
@@ -166,6 +168,7 @@ void met_inicia(void)
     tique_antecipado = 0;
     n_criados = 0;
     t_zera(&n_preempcoes);
+    t_zera(&n_faltas);
     met_le_agora();
 }
 
@@ -219,6 +222,7 @@ int met_cria(int pid, int prog)
     m->criacao = agora;
     m->desde = agora;
     t_zera(&m->preempcoes);
+    t_zera(&m->faltas);
     m->desbloqueado = 0;
     t_zera(&m->resposta);
     m->n_respostas = 0;
@@ -267,6 +271,17 @@ void met_preempcao(int pid)
     }
 }
 
+void met_falta(int pid)
+{
+    struct metrica *m;
+
+    t_soma_int(&n_faltas, 1);
+    m = met_de(pid);
+    if (m != 0) {
+        t_soma_int(&m->faltas, 1);
+    }
+}
+
 void met_morte(int pid)
 {
     struct metrica *m;
@@ -301,6 +316,8 @@ void met_imprime(void)
     k_tempo(&ocioso_total, 0);
     k_puts("\npreempcoes:         ");
     k_tempo(&n_preempcoes, 0);
+    k_puts("\nfaltas de pagina:   ");
+    k_tempo(&n_faltas, 0);
     k_puts("\ninterrupcoes:      ");
     met_imprime_irq(" sistema=", 7);
     met_imprime_irq(" console=", 8);
@@ -325,7 +342,7 @@ void met_imprime(void)
     k_puts("\npid programa   retorno prmp  npr");
     k_puts("  pronto  nbl bloqueado");
     k_puts("  nex executando");
-    k_puts(" resposta\n");
+    k_puts(" resposta  falt\n");
     for (i = 0; i < MAX_PIDS; i++) {
         m = &met[i];
         if (!m->usado) {
@@ -358,8 +375,10 @@ void met_imprime(void)
         } else {
             k_puts("        -");
         }
+        k_tempo(&m->faltas, 6);
         k_putc(10);
     }
     k_puts("\ntempos em instrucoes; prmp = preempcoes;\n");
-    k_puts("npr/nbl/nex = vezes em pronto/bloqueado/executando\n");
+    k_puts("npr/nbl/nex = vezes em pronto/bloqueado/executando;\n");
+    k_puts("falt = faltas de pagina atendidas\n");
 }

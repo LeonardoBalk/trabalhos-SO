@@ -57,9 +57,3 @@ _f_so_espera_proc:
         ld      sp, bp
         pop     bp
         ret
-
-; retorno da função principal de um processo
-_f_so_fim_processo:
-        ld      r0, SO_MATA_PROC
-        ld      r1, 0
-        trap    7

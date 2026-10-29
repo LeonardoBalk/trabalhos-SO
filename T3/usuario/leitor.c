@@ -1,6 +1,6 @@
 #include "sistema.h"
 
-void leitor(void)
+void main(void)
 {
     char linha[40];
     int n;

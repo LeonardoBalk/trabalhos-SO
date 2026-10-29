@@ -1,4 +1,5 @@
-; lê do disco as páginas de ola_pag e confere com o que o montador gerou
+; lê do disco as primeiras páginas do primeiro programa da imagem, para
+; conferir a cadeia montador -> mob2bin -> imagem -> bios_disco_le_setor
 
         .equ    DESTINO = 0x8000
 

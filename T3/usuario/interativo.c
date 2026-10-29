@@ -1,6 +1,6 @@
 #include "sistema.h"
 
-void interativo(void)
+void main(void)
 {
     int n;
     int c;

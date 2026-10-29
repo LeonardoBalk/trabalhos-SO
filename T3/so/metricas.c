@@ -1,6 +1,6 @@
 #include "config.h"
 
-#define MAX_PIDS 200
+#define MAX_PIDS 50
 #define N_IRQ 16
 #define N_ESTADOS 4
 #define BASE 10000

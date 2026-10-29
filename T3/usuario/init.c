@@ -1,6 +1,6 @@
 #include "sistema.h"
 
-void init(void)
+void main(void)
 {
     int pids[4];
     int i;

@@ -2,6 +2,7 @@
 # contador de endereços único e intercalaria os dois
 
 BEGIN { seg = "T" }
+FNR == 1 { seg = "T" }
 /^[ \t]*\.text[ \t]*$/ { seg = "T"; next }
 /^[ \t]*\.data[ \t]*$/ { seg = "D"; next }
 /^[ \t]*\.bss[ \t]*$/  { seg = "D"; next }

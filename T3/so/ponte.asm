@@ -146,3 +146,18 @@ _str_fim:
 ; void k_para(void)
 _f_k_para:
         halt
+
+; int le_setor(int face, int trilha, int setor, int destino)
+; devolve 0 se deu certo
+_f_le_setor:
+        push    bp
+        ld      bp, sp
+        ld      r0, (bp+4)
+        ld      r1, (bp+6)
+        ld      r2, (bp+8)
+        ld      r3, (bp+10)
+        call    bios_disco_le_setor
+        call    bios_disco_erro
+        ld      sp, bp
+        pop     bp
+        ret

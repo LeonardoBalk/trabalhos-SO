@@ -164,7 +164,7 @@ _tempo_antes_fim:
 
 ; área das métricas por pid (MAX_PIDS * sizeof(struct metrica) bytes); em C
 ; um vetor global desse tamanho viraria milhares de linhas .db no montador
-        .equ    TAM_AREA_METRICAS = 13600
+        .equ    TAM_AREA_METRICAS = 3400
 
 ; struct metrica *met_area(void)
 _f_met_area:
@@ -174,6 +174,12 @@ _f_met_area:
 ; int met_area_tamanho(void)
 _f_met_area_tamanho:
         ld      r0, TAM_AREA_METRICAS
+        ret
+
+; int fim_so(void): primeiro endereço livre depois do SO; tempo.asm tem que
+; ser o último arquivo passado ao montador
+_f_fim_so:
+        ld      r0, _fim_so
         ret
 
 ; int le_contador(void): contador do relógio, relendo se o byte alto mudou
@@ -195,4 +201,5 @@ _tempo_contador_ok:
 
         .data
 _area_metricas:
-        .ds     6800                    ; TAM_AREA_METRICAS / 2 palavras
+        .ds     1700                    ; TAM_AREA_METRICAS / 2 palavras
+_fim_so:

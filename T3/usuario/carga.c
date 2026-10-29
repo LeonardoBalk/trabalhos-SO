@@ -11,18 +11,3 @@ void carga_cpu(int letra)
         putchar(letra);
     }
 }
-
-void cpu_a(void)
-{
-    carga_cpu('A');
-}
-
-void cpu_b(void)
-{
-    carga_cpu('B');
-}
-
-void cpu_c(void)
-{
-    carga_cpu('C');
-}

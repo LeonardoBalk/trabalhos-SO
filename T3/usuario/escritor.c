@@ -1,6 +1,6 @@
 #include "sistema.h"
 
-void escritor(void)
+void main(void)
 {
     int i;
     for (i = 0; i < 5; i++) {

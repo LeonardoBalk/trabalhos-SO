@@ -63,33 +63,38 @@ esac
 printf '#define ESCALONADOR %s\n#define QUANTUM %s\n#define PERIODO_RELOGIO %s\n' \
   "$escalonador" "$quantum" "$periodo" > bin/config.h
 
-asm=()
-for fonte in so/*.c usuario/*.c; do
-  case "$fonte" in usuario/ola_pag.c) continue ;; esac
-  saida="bin/$(basename "${fonte%.c}").asm"
-  "./bin/mcc$exe" -Iusuario -Ibin "$fonte" -o "$saida"
-  asm+=("$saida")
-done
-"./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm so/tempo.asm usuario/sistema.asm \
-  "${asm[@]}" -o bin/so.mob
-
 # programas de usuário no disco: código nas páginas 0..n-1, dados a partir
 # da página pagina_dados
 pagina_dados=16
-n_pag_dados=8
+n_pag_dados=3
 tam_setor=512
 
-programas=(ola_pag)
+programas=(init escritor leitor cpu_a cpu_b cpu_c interativo
+           testa escreve_codigo fora_mapa estoura)
+
+# programa que o SO cria na inicializacao
+prog_init="${PROG_INIT:-init}"
+achou=0
+for p in "${programas[@]}"; do
+  [ "$p" = "$prog_init" ] && achou=1
+done
+if [ "$achou" = 0 ]; then
+  echo "PROG_INIT deve ser um dos programas: ${programas[*]}" >&2; exit 1
+fi
+printf '#define PROG_INIT "%s"\n' "$prog_init" >> bin/config.h
 
 "./bin/mcc$exe" -Iusuario -Ibin usuario/biblioteca.c -o bin/u_biblioteca.asm
+"./bin/mcc$exe" -Iusuario -Ibin usuario/carga.c -o bin/u_carga.asm
 
 monta_programa() {
   local nome=$1
+  local extra=()
+  case "$nome" in cpu_a|cpu_b|cpu_c) extra=(bin/u_carga.asm) ;; esac
   "./bin/mcc$exe" -Iusuario -Ibin "usuario/$nome.c" -o "bin/u_$nome.asm" >/dev/null
   : > "bin/$nome.text.asm"
   : > "bin/$nome.data.asm"
   awk -v texto="bin/$nome.text.asm" -v dados="bin/$nome.data.asm" -f liga.awk \
-    usuario/inicio.asm "bin/u_$nome.asm" bin/u_biblioteca.asm usuario/sistema.asm
+    usuario/inicio.asm "bin/u_$nome.asm" "${extra[@]}" bin/u_biblioteca.asm usuario/sistema.asm
   {
     echo "        .text"
     cat "bin/$nome.text.asm"
@@ -102,15 +107,19 @@ monta_programa() {
     -d "$pagina_dados" -n "$n_pag_dados"
 }
 
-rm -f bin/disco.img
 setor=0
 tabela=""
+bins=()
 for p in "${programas[@]}"; do
   n_pag_codigo=$(monta_programa "$p")
-  cat "bin/$p.bin" >> bin/disco.img
+  bins+=("bin/$p.bin")
   tabela="$tabela    { \"$p\", $setor, $n_pag_codigo },\n"
   setor=$((setor + n_pag_codigo + n_pag_dados))
 done
+cat "${bins[@]}" > bin/disco.img
+if [ "$(wc -c < bin/disco.img)" -ne "$((setor * tam_setor))" ]; then
+  echo "imagem de disco com tamanho inesperado" >&2; exit 1
+fi
 
 {
   printf '#define N_PROG_DISCO %s\n' "${#programas[@]}"
@@ -123,4 +132,14 @@ done
   printf '};\n'
 } > bin/programas.h
 
-echo "Executar da raiz: ./T3/bin/simulador$exe T3/bin/so.mob"
+# tempo.asm fica por último para que _fim_so marque mesmo o fim do SO
+asm=()
+for fonte in so/*.c; do
+  saida="bin/$(basename "${fonte%.c}").asm"
+  "./bin/mcc$exe" -Ibin "$fonte" -o "$saida"
+  asm+=("$saida")
+done
+"./bin/montador$exe" bios_mancha/src/bios.asm so/ponte.asm \
+  "${asm[@]}" so/tempo.asm -o bin/so.mob
+
+echo "Executar da raiz: ./T3/bin/simulador$exe T3/bin/so.mob -D T3/bin/disco.img"

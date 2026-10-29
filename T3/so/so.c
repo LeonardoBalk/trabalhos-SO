@@ -1,8 +1,18 @@
 #include "config.h"
+#include "programas.h"
 
 #define N_PROC 8
-#define TAM_PILHA 256
-#define N_PROGRAMAS 7
+
+// o DMA do disco e o proprio SO sao de 16 bits, entao so' os primeiros
+// 64 KB da memoria de 1 MB sao utilizaveis
+#define TAM_PAGINA 512
+#define N_ENTRADAS 256
+#define METADE_DADOS 128
+#define ULTIMO_QUADRO 104
+
+#define PG_AUSENTE 0
+#define PG_CODIGO 1
+#define PG_DADOS 3
 
 #define ESC_SIMPLES 1
 #define ESC_CIRCULAR 2
@@ -23,6 +33,7 @@
 #define SO_MATA_PROC 8
 #define SO_ESPERA_PROC 9
 
+#define IRQ_PAGINA 5
 #define IRQ_SISTEMA 7
 #define IRQ_CONSOLE 8
 #define IRQ_DISCO 9
@@ -33,16 +44,18 @@
 #define Q_SP 6
 #define Q_IP 7
 #define Q_SR 8
+#define Q_S4 12
 
-#define SR_USUARIO 0
-#define SR_OCIOSO 0xA000
+#define SR_USUARIO 0x4000
+#define SR_OCIOSO 0xE000
 
 void k_out(int porta, int valor);
 int k_in(int porta);
 void k_para(void);
 void so_ocioso(void);
-void so_fim_processo(void);
 void copia_quadro(int *de, int *para);
+int le_setor(int face, int trilha, int setor, int destino);
+int fim_so(void);
 
 void met_inicia(void);
 void met_entrada(int irq);
@@ -53,41 +66,23 @@ void met_preempcao(int pid);
 void met_morte(int pid);
 void met_imprime(void);
 
-void init(void);
-void escritor(void);
-void leitor(void);
-void cpu_a(void);
-void cpu_b(void);
-void cpu_c(void);
-void interativo(void);
-
 struct processo {
     int pid;
     int estado;
     int motivo;
     int espera;
     int prio;
+    int prog;
+    int qpt;
     int quadro[16];
 };
 
-struct programa {
-    char *nome;
-    void (*entrada)(void);
-};
-
-struct programa programas[N_PROGRAMAS] = {
-    { "init", init },
-    { "escritor", escritor },
-    { "leitor", leitor },
-    { "cpu_a", cpu_a },
-    { "cpu_b", cpu_b },
-    { "cpu_c", cpu_c },
-    { "interativo", interativo }
-};
-
 struct processo tabela[N_PROC];
-int pilhas[N_PROC][TAM_PILHA];
 int quadro_zero[16];
+int livre[ULTIMO_QUADRO];
+int primeiro_quadro;
+int n_livres;
+int pt_nucleo;
 int atual;
 int proximo_pid;
 int n_bloq[4];
@@ -185,16 +180,151 @@ void so_torna_pronto(int i)
     fila_insere(i);
 }
 
+void quadros_inicia(void)
+{
+    int i;
+    int fim;
+
+    fim = fim_so();
+    primeiro_quadro = fim / TAM_PAGINA + 1;
+    if (fim < 0 || primeiro_quadro >= ULTIMO_QUADRO) {
+        k_puts("SO: nucleo grande demais\n");
+        k_para();
+    }
+    n_livres = 0;
+    for (i = 0; i < ULTIMO_QUADRO; i++) {
+        if (i < primeiro_quadro) {
+            livre[i] = 0;
+        } else {
+            livre[i] = 1;
+            n_livres = n_livres + 1;
+        }
+    }
+}
+
+int aloca_quadro(void)
+{
+    int i;
+
+    for (i = primeiro_quadro; i < ULTIMO_QUADRO; i++) {
+        if (livre[i]) {
+            livre[i] = 0;
+            n_livres = n_livres - 1;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void libera_quadro(int q)
+{
+    if (q >= primeiro_quadro && q < ULTIMO_QUADRO && !livre[q]) {
+        livre[q] = 1;
+        n_livres = n_livres + 1;
+    }
+}
+
+int pt_tipo(int e)
+{
+    return (e >> 14) & 3;
+}
+
+int pt_quadro(int e)
+{
+    return e & 0x1FFF;
+}
+
+int pt_monta(int tipo, int q)
+{
+    return tipo * 16384 + q;
+}
+
+void pt_zera(int *pt)
+{
+    int i;
+
+    for (i = 0; i < N_ENTRADAS; i++) {
+        pt[i] = PG_AUSENTE;
+    }
+}
+
+void pt_libera(int *pt)
+{
+    int i;
+
+    for (i = 0; i < N_ENTRADAS; i++) {
+        if (pt_tipo(pt[i]) != PG_AUSENTE) {
+            libera_quadro(pt_quadro(pt[i]));
+            pt[i] = PG_AUSENTE;
+        }
+    }
+}
+
+// a CPU nao desliga o bit P ao interromper, entao o SO roda paginado
+// quando interrompe um processo; a tabela identidade deixa isso igual a
+// segmentacao plana, e o campo cs de cada quadro do vetor aponta para ela
+void nucleo_pagina(void)
+{
+    int i;
+    int *pt;
+    int *vetor;
+
+    pt_nucleo = aloca_quadro();
+    if (pt_nucleo < 0) {
+        k_puts("SO: sem quadro para a tabela do nucleo\n");
+        k_para();
+    }
+    pt = (int *) (pt_nucleo * TAM_PAGINA);
+    for (i = 0; i < METADE_DADOS; i++) {
+        pt[i] = pt_monta(PG_DADOS, i);
+        pt[METADE_DADOS + i] = pt_monta(PG_DADOS, i);
+    }
+    vetor = 0;
+    for (i = 1; i < 16; i++) {
+        if (vetor[i * 4] != 0) {
+            vetor[i * 4 + 2] = (int) pt;
+        }
+    }
+}
+
+int le_pagina(int linear, int q)
+{
+    int face;
+    int trilha;
+    int setor;
+
+    setor = linear % 18;
+    trilha = (linear / 18) % 40;
+    face = linear / 720;
+    return le_setor(face, trilha, setor, q * TAM_PAGINA);
+}
+
+int mapeia(int *pt, int entrada, int tipo, int linear)
+{
+    int q;
+
+    q = aloca_quadro();
+    if (q < 0) {
+        return 0;
+    }
+    if (le_pagina(linear, q) != 0) {
+        libera_quadro(q);
+        return 0;
+    }
+    pt[entrada] = pt_monta(tipo, q);
+    return 1;
+}
+
 char *so_nome_programa(int prog)
 {
-    return programas[prog].nome;
+    return progs_disco[prog].nome;
 }
 
 int busca_programa(char *nome)
 {
     int i;
-    for (i = 0; i < N_PROGRAMAS; i++) {
-        if (str_igual(programas[i].nome, nome)) {
+    for (i = 0; i < N_PROG_DISCO; i++) {
+        if (str_igual(progs_disco[i].nome, nome)) {
             return i;
         }
     }
@@ -216,7 +346,11 @@ int so_cria_processo(char *nome)
 {
     int prog;
     int i;
-    void (*fim)(void);
+    int pg;
+    int qpt;
+    int n_cod;
+    int setor;
+    int *pt;
     struct processo *p;
 
     prog = busca_programa(nome);
@@ -228,18 +362,52 @@ int so_cria_processo(char *nome)
             break;
         }
     }
-    if (i == N_PROC || !met_cria(proximo_pid, prog)) {
+    if (i == N_PROC) {
+        return -1;
+    }
+
+    qpt = aloca_quadro();
+    if (qpt < 0) {
+        return -1;
+    }
+    pt = (int *) (qpt * TAM_PAGINA);
+    pt_zera(pt);
+
+    n_cod = progs_disco[prog].n_pag_codigo;
+    setor = progs_disco[prog].setor;
+    for (pg = 0; pg < n_cod; pg++) {
+        if (!mapeia(pt, pg, PG_CODIGO, setor + pg)) {
+            pt_libera(pt);
+            libera_quadro(qpt);
+            return -1;
+        }
+        // mesma página também como dado só-leitura: o processo lê o próprio
+        // código, mas escrever nele dá interrupção 1 em vez de 5
+        pt[METADE_DADOS + pg] = pt[pg];
+    }
+    for (pg = 0; pg < N_PAG_DADOS; pg++) {
+        if (!mapeia(pt, METADE_DADOS + PAGINA_DADOS + pg, PG_DADOS,
+                    setor + n_cod + pg)) {
+            pt_libera(pt);
+            libera_quadro(qpt);
+            return -1;
+        }
+    }
+    if (!met_cria(proximo_pid, prog)) {
+        pt_libera(pt);
+        libera_quadro(qpt);
         return -1;
     }
 
     p = &tabela[i];
     copia_quadro(quadro_zero, p->quadro);
-    fim = so_fim_processo;
-    pilhas[i][TAM_PILHA - 1] = (int) fim;
-    p->quadro[Q_SP] = (int) &pilhas[i][TAM_PILHA - 1];
-    p->quadro[Q_IP] = (int) programas[prog].entrada;
+    p->quadro[Q_SP] = (PAGINA_DADOS + N_PAG_DADOS) * TAM_PAGINA - 2;
+    p->quadro[Q_IP] = 0;
     p->quadro[Q_SR] = SR_USUARIO;
+    p->quadro[Q_S4] = (int) pt;
+    p->qpt = qpt;
     p->pid = proximo_pid;
+    p->prog = prog;
     proximo_pid = proximo_pid + 1;
     p->prio = 500;
     so_torna_pronto(i);
@@ -258,6 +426,13 @@ void so_encerra(void)
             k_int(tabela[i].pid);
         }
     }
+    k_putc(10);
+    k_puts("SO: quadros ");
+    k_int(primeiro_quadro);
+    k_puts("..");
+    k_int(ULTIMO_QUADRO - 1);
+    k_puts(", livres no fim: ");
+    k_int(n_livres);
     k_putc(10);
     met_imprime();
     k_para();
@@ -289,6 +464,11 @@ void so_mata_processo(int i)
     }
     met_morte(tabela[i].pid);
     tabela[i].estado = LIVRE;
+    if (tabela[i].quadro[Q_S4] != 0) {
+        pt_libera((int *) tabela[i].quadro[Q_S4]);
+        libera_quadro(tabela[i].qpt);
+        tabela[i].quadro[Q_S4] = 0;
+    }
     if (i == atual) {
         atual = -1;
     }
@@ -343,9 +523,54 @@ void sc_escreve(struct processo *p)
     }
 }
 
+// o nome vem como endereço virtual do processo, que o SO não enxerga
+// direto: cada byte passa pela tabela de páginas dele
+int traduz_dados(struct processo *p, int virt)
+{
+    int *pt;
+    int e;
+
+    pt = (int *) p->quadro[Q_S4];
+    if (pt == 0) {
+        return 0;
+    }
+    e = pt[METADE_DADOS + ((virt >> 9) & 127)];
+    if (pt_tipo(e) == PG_AUSENTE) {
+        return 0;
+    }
+    return pt_quadro(e) * TAM_PAGINA + (virt & 511);
+}
+
+int copia_nome(struct processo *p, int virt, char *dest, int max)
+{
+    int i;
+    int f;
+    char *s;
+
+    for (i = 0; i < max - 1; i++) {
+        f = traduz_dados(p, virt + i);
+        if (f == 0) {
+            return 0;
+        }
+        s = (char *) f;
+        dest[i] = *s;
+        if (dest[i] == 0) {
+            return 1;
+        }
+    }
+    dest[max - 1] = 0;
+    return 1;
+}
+
 void sc_cria_proc(struct processo *p)
 {
-    p->quadro[Q_R0] = so_cria_processo((char *) p->quadro[Q_R1]);
+    char nome[16];
+
+    if (!copia_nome(p, p->quadro[Q_R1], nome, 16)) {
+        p->quadro[Q_R0] = -1;
+        return;
+    }
+    p->quadro[Q_R0] = so_cria_processo(nome);
 }
 
 void sc_mata_proc(struct processo *p)
@@ -409,6 +634,33 @@ void so_trata_relogio(void)
     if (atual >= 0 && quantum_restante > 0) {
         quantum_restante = quantum_restante - 1;
     }
+}
+
+void k_hex(int v)
+{
+    char *d;
+    int i;
+
+    d = "0123456789ABCDEF";
+    for (i = 12; i >= 0; i = i - 4) {
+        k_putc(d[(v >> i) & 15]);
+    }
+}
+
+// na parte I tudo o que o processo usa legitimamente foi mapeado na
+// criação, então qualquer falta é acesso indevido
+void so_trata_falta(void)
+{
+    if (atual < 0) {
+        k_puts("\nSO: falta de pagina no nucleo\n");
+        k_para();
+    }
+    k_puts("\nSO: processo ");
+    k_int(tabela[atual].pid);
+    k_puts(" morto por falta de pagina, ip=");
+    k_hex(tabela[atual].quadro[Q_IP]);
+    k_putc(10);
+    so_mata_processo(atual);
 }
 
 void so_trata_excecao(int irq)
@@ -547,6 +799,7 @@ void so_despacha(int *quadro)
     quadro[Q_SP] = 0xE000;
     quadro[Q_IP] = (int) ocioso;
     quadro[Q_SR] = SR_OCIOSO;
+    quadro[Q_S4] = pt_nucleo * TAM_PAGINA;
 }
 
 void so_trata_interrupcao(int irq, int *quadro)
@@ -557,6 +810,8 @@ void so_trata_interrupcao(int irq, int *quadro)
         so_trata_chamada();
     } else if (irq == IRQ_RELOGIO) {
         so_trata_relogio();
+    } else if (irq == IRQ_PAGINA) {
+        so_trata_falta();
     } else if (irq == IRQ_CONSOLE || irq == IRQ_DISCO) {
     } else {
         so_trata_excecao(irq);
@@ -580,11 +835,13 @@ void so_inicia(int *quadro)
     }
     fila_inicio = 0;
     fila_n = 0;
+    quadros_inicia();
+    nucleo_pagina();
     met_inicia();
     k_out(0x22, PERIODO_RELOGIO >> 8);
     k_out(0x23, PERIODO_RELOGIO & 255);
     k_out(0x30, 5);
-    so_cria_processo("init");
+    so_cria_processo(PROG_INIT);
     so_escalona();
     so_despacha(quadro);
 }

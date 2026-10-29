@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
       carimbo = true;
     } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
       max = atol(argv[++i]);
-    } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+    } else if (strcmp(argv[i], "-D") == 0 && i + 1 < argc) {
       disco = argv[++i];
     } else if (strcmp(argv[i], "-e") == 0 && i + 1 < argc && n_entradas < MAX_ENTRADAS) {
       char *arg = argv[++i];
@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
     }
   }
   if (arquivo == NULL) {
-    fprintf(stderr, "uso: %s [-t] [-n max] [-d disco.img] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
+    fprintf(stderr, "uso: %s [-t] [-n max] [-D disco.img] [-e instrucao:texto]... arquivo.mob\n", argv[0]);
     return 2;
   }
 
